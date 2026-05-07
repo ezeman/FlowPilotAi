@@ -63,7 +63,7 @@ export default function RegisterPage() {
     return (
       <div className="login-shell">
         <div className="login-panel">
-          <div className="eyebrow" style={{ color: "var(--primary)" }}>FlowPilot AI</div>
+          <div className="eyebrow" style={{ color: "var(--primary)" }}>ezeCraft AI</div>
           <h1>{t("register.verifyTitle")}</h1>
           <p>{t("register.verifySubtitle")}</p>
           <div className="surface-panel" style={{ marginTop: "1.5rem", padding: "1rem", wordBreak: "break-all", fontSize: "0.8rem", fontFamily: "monospace" }}>
@@ -88,7 +88,7 @@ export default function RegisterPage() {
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }}>
           <LanguageSwitcher />
         </div>
-        <div className="eyebrow" style={{ color: "var(--primary)" }}>FlowPilot AI</div>
+        <div className="eyebrow" style={{ color: "var(--primary)" }}>ezeCraft AI</div>
         <h1>{t("register.title")}</h1>
         <p>{t("register.subtitle")}</p>
         <form className="stack-form" onSubmit={handleSubmit} style={{ marginTop: "1.5rem" }}>

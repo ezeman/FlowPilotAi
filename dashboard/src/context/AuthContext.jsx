@@ -5,8 +5,8 @@ import { apiRequest, setActiveAccountId, setAuthToken } from "../services/api";
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem("flowpilot_token"));
-  const [activeAccountId, setActiveAccountIdState] = useState(() => localStorage.getItem("flowpilot_active_account_id"));
+  const [token, setToken] = useState(() => localStorage.getItem("ezecraft_token"));
+  const [activeAccountId, setActiveAccountIdState] = useState(() => localStorage.getItem("ezecraft_active_account_id"));
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -24,15 +24,15 @@ export function AuthProvider({ children }) {
         if (data.role === "platform_admin") {
           const nextAccountId = activeAccountId || String(data.active_account_id || data.account_id || "");
           if (nextAccountId) {
-            localStorage.setItem("flowpilot_active_account_id", nextAccountId);
+            localStorage.setItem("ezecraft_active_account_id", nextAccountId);
             setActiveAccountId(nextAccountId);
             setActiveAccountIdState(nextAccountId);
           }
         }
       })
       .catch(() => {
-        localStorage.removeItem("flowpilot_token");
-        localStorage.removeItem("flowpilot_active_account_id");
+        localStorage.removeItem("ezecraft_token");
+        localStorage.removeItem("ezecraft_active_account_id");
         setAuthToken(null);
         setActiveAccountId(null);
         setToken(null);
@@ -56,18 +56,18 @@ export function AuthProvider({ children }) {
         method: "POST",
         body: JSON.stringify({ email, password })
       });
-      localStorage.setItem("flowpilot_token", data.access_token);
+      localStorage.setItem("ezecraft_token", data.access_token);
       setAuthToken(data.access_token);
       setToken(data.access_token);
     },
     loginWithToken(token) {
-      localStorage.setItem("flowpilot_token", token);
+      localStorage.setItem("ezecraft_token", token);
       setAuthToken(token);
       setToken(token);
     },
     logout() {
-      localStorage.removeItem("flowpilot_token");
-      localStorage.removeItem("flowpilot_active_account_id");
+      localStorage.removeItem("ezecraft_token");
+      localStorage.removeItem("ezecraft_active_account_id");
       setAuthToken(null);
       setActiveAccountId(null);
       setToken(null);
@@ -77,9 +77,9 @@ export function AuthProvider({ children }) {
     switchAccount(accountId) {
       const nextValue = accountId ? String(accountId) : null;
       if (nextValue) {
-        localStorage.setItem("flowpilot_active_account_id", nextValue);
+        localStorage.setItem("ezecraft_active_account_id", nextValue);
       } else {
-        localStorage.removeItem("flowpilot_active_account_id");
+        localStorage.removeItem("ezecraft_active_account_id");
       }
       setActiveAccountId(nextValue);
       setActiveAccountIdState(nextValue);

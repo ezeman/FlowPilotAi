@@ -224,7 +224,7 @@ export default function PostEditorPage() {
               <input
                 value={post.hashtags || ""}
                 onChange={(event) => setPost({ ...post, hashtags: event.target.value })}
-                placeholder="#FlowPilot, #ContentAI"
+                placeholder="#ezeCraft, #ContentAI"
               />
             </label>
             <label>

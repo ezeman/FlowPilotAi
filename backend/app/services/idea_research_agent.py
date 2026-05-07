@@ -195,7 +195,7 @@ def _cleanup_html(value: str) -> str:
 
 
 def _fetch_source_summary(source: TrustedSource) -> dict:
-    headers = {"User-Agent": "FlowPilotAgent/1.0 (+https://localhost)"}
+    headers = {"User-Agent": "ezeCraftAgent/1.0 (+https://localhost)"}
     with httpx.Client(timeout=12.0, follow_redirects=True, headers=headers) as client:
         response = client.get(source.url)
         response.raise_for_status()

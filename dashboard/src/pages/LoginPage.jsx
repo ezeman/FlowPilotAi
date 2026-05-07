@@ -34,7 +34,8 @@ export default function LoginPage() {
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }}>
           <LanguageSwitcher />
         </div>
-        <div className="eyebrow" style={{ color: "var(--primary)" }}>FlowPilot AI</div>
+        <div className="eyebrow" style={{ color: "var(--primary)" }}>ezeCraft AI</div>
+        <p style={{ margin: "0.1rem 0 0.6rem", fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic" }}>Craft is Easy.</p>
         <h1>{t("login.title")}</h1>
         <p>{t("login.subtitle")}</p>
         <form className="stack-form" onSubmit={handleSubmit} style={{ marginTop: "1.5rem" }}>

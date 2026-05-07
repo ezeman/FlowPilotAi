@@ -154,6 +154,14 @@ th {
   color: #eef2ff;
 }
 
+.brand-motto {
+  font-size: 0.78rem;
+  color: var(--primary);
+  font-style: italic;
+  font-weight: 500;
+  margin: -0.2rem 0 0;
+}
+
 .brand-subtitle {
   font-size: 0.82rem;
   color: var(--sidebar-muted);

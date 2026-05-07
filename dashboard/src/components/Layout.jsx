@@ -102,7 +102,8 @@ export default function Layout({ children }) {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-block">
-          <div className="brand-mark">FlowPilot AI</div>
+          <div className="brand-mark">ezeCraft AI</div>
+          <p className="brand-motto">Craft is Easy.</p>
           <p className="brand-subtitle">{t("layout.brandSubtitle")}</p>
         </div>
 

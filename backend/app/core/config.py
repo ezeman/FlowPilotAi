@@ -9,14 +9,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    project_name: str = "FlowPilot AI API"
+    project_name: str = "ezeCraft AI API"
     api_prefix: str = "/api/v1"
     environment: str = Field(default="development", alias="ENVIRONMENT")
     secret_key: str = Field(default="change-me-secret", alias="SECRET_KEY")
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 2
     database_url: str = Field(
-        default="postgresql+psycopg2://postgres:postgres@postgres:5432/flowpilot_db",
+        default="postgresql+psycopg2://postgres:postgres@postgres:5432/ezecraft_db",
         alias="DATABASE_URL",
     )
     redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")

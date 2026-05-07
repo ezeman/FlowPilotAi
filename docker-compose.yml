@@ -1,10 +1,10 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: flowpilot-postgres
+    container_name: ezecraft-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-flowpilot_db}
+      POSTGRES_DB: ${POSTGRES_DB:-ezecraft_db}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
@@ -12,14 +12,14 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-flowpilot_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ezecraft_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: flowpilot-redis
+    container_name: ezecraft-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     ports:
@@ -35,7 +35,7 @@ services:
   api:
     build:
       context: ./backend
-    container_name: flowpilot-api
+    container_name: ezecraft-api
     restart: unless-stopped
     env_file:
       - .env
@@ -53,7 +53,7 @@ services:
   worker:
     build:
       context: ./backend
-    container_name: flowpilot-worker
+    container_name: ezecraft-worker
     restart: unless-stopped
     env_file:
       - .env
@@ -67,7 +67,7 @@ services:
   scheduler:
     build:
       context: ./backend
-    container_name: flowpilot-scheduler
+    container_name: ezecraft-scheduler
     restart: unless-stopped
     env_file:
       - .env
@@ -81,7 +81,7 @@ services:
   dashboard:
     build:
       context: ./dashboard
-    container_name: flowpilot-dashboard
+    container_name: ezecraft-dashboard
     restart: unless-stopped
     env_file:
       - .env
@@ -92,7 +92,7 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
-    container_name: flowpilot-nginx
+    container_name: ezecraft-nginx
     restart: unless-stopped
     depends_on:
       - api

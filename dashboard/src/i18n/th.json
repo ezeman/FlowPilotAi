@@ -457,9 +457,9 @@
     "successMsg": "ส่งคำขอชำระเงินสำเร็จ รอ platform admin ตรวจสอบ",
     "bankInfoKBank": "ธนาคารกสิกรไทย (KBank)",
     "bankInfoAccount": "เลขบัญชี: 123-4-56789-0",
-    "bankInfoName": "ชื่อบัญชี: FlowPilot AI Co., Ltd.",
+    "bankInfoName": "ชื่อบัญชี: ezeCraft AI Co., Ltd.",
     "promptPayNumber": "พร้อมเพย์ (เลขบัตร/โทรศัพท์): 099-999-9999",
-    "promptPayName": "ชื่อ: FlowPilot AI Co., Ltd."
+    "promptPayName": "ชื่อ: ezeCraft AI Co., Ltd."
   },
   "profile": {
     "eyebrow": "บัญชีของฉัน",

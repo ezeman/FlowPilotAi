@@ -457,9 +457,9 @@
     "successMsg": "Payment request submitted successfully. Waiting for platform admin review.",
     "bankInfoKBank": "KBank (Kasikorn Bank)",
     "bankInfoAccount": "Account No: 123-4-56789-0",
-    "bankInfoName": "Account Name: FlowPilot AI Co., Ltd.",
+    "bankInfoName": "Account Name: ezeCraft AI Co., Ltd.",
     "promptPayNumber": "PromptPay (ID/Phone): 099-999-9999",
-    "promptPayName": "Name: FlowPilot AI Co., Ltd."
+    "promptPayName": "Name: ezeCraft AI Co., Ltd."
   },
   "profile": {
     "eyebrow": "My Account",

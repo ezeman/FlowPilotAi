@@ -1,4 +1,6 @@
-# FlowPilot AI
+# ezeCraft AI
+
+> **Craft is Easy.**
 
 AI content operations platform for multi-brand teams. The system helps editorial and marketing teams generate, review, schedule, and publish trustworthy social content with account, page, user, and plan management built in.
 
