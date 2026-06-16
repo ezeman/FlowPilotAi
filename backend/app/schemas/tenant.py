@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class SubscriptionPlanRead(BaseModel):
@@ -76,6 +76,7 @@ class ManagedUserRead(BaseModel):
     is_email_verified: bool
     created_at: datetime
     updated_at: datetime
+    assigned_page_ids: list[int] = Field(default_factory=list)
 
 
 class ManagedUserCreate(BaseModel):
@@ -85,9 +86,23 @@ class ManagedUserCreate(BaseModel):
     role: str = Field(default="editor", min_length=2, max_length=50)
     account_id: int | None = None
     is_active: bool = True
+    assigned_page_ids: list[int] = Field(default_factory=list)
+
+    @field_validator("role")
+    @classmethod
+    def normalize_role(cls, value: str) -> str:
+        return "platform_owner" if value == "platform_admin" else value
 
 
 class ManagedUserUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     role: str | None = Field(default=None, min_length=2, max_length=50)
     is_active: bool | None = None
+    assigned_page_ids: list[int] | None = None
+
+    @field_validator("role")
+    @classmethod
+    def normalize_role(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return "platform_owner" if value == "platform_admin" else value

@@ -4,6 +4,7 @@ import Card from "../components/Card";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LangContext";
 import { apiRequest } from "../services/api";
+import { roleLabel } from "../utils/roles";
 
 const emptyPw = { current_password: "", new_password: "", confirm_password: "" };
 
@@ -57,7 +58,7 @@ export default function ProfilePage() {
           <div className="eyebrow">{t("profile.eyebrow")}</div>
           <h1>{user?.full_name || "Profile"}</h1>
           <p>
-            {user?.email} · {user?.role}
+            {user?.email} · {roleLabel(user?.role)}
           </p>
         </div>
       </section>
@@ -78,7 +79,7 @@ export default function ProfilePage() {
             </div>
             <div className="surface-row">
               <span>{t("profile.role")}</span>
-              <span className="status-pill">{user?.role}</span>
+              <span className="status-pill">{roleLabel(user?.role)}</span>
             </div>
             <div className="surface-row">
               <span>{t("profile.workspace")}</span>

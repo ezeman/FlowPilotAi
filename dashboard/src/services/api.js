@@ -1,14 +1,9 @@
 let authToken = null;
-let activeAccountId = null;
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 
 export function setAuthToken(token) {
   authToken = token;
-}
-
-export function setActiveAccountId(accountId) {
-  activeAccountId = accountId ? String(accountId) : null;
 }
 
 export async function apiRequest(path, options = {}) {
@@ -20,10 +15,6 @@ export async function apiRequest(path, options = {}) {
   if (authToken) {
     headers.set("Authorization", `Bearer ${authToken}`);
   }
-  if (activeAccountId) {
-    headers.set("X-Account-Id", activeAccountId);
-  }
-
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers

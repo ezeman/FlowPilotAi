@@ -84,5 +84,4 @@ def me(current_user: User = Depends(get_current_user), db: Session = Depends(get
     if current_account:
         setattr(current_account, "active_subscription", get_active_subscription(current_account))
         setattr(current_user, "account", current_account)
-    setattr(current_user, "active_account_id", getattr(current_user, "active_account_id", current_user.account_id))
     return current_user

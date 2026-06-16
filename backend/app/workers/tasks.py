@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery_app
 from app.db.session import SessionLocal
-from app.models.entities import Account, Post, PublishLog, User
+from app.models.entities import Account, ContentCalendar, Post, PublishLog, User
 from app.schemas.content import AutoIdeaDiscoveryRequest, GenerateContentRequest
 from app.services.facebook_publisher import publish_post_to_facebook
 from app.services.idea_research_agent import (
@@ -16,7 +16,22 @@ from app.services.idea_research_agent import (
     should_run_auto_idea_schedule,
 )
 from app.services.openai_agent import generate_content
+from app.services.pipeline_agents import final_review_agent, review_content_agent
 from app.services.post_workflow import create_audit_entry
+from app.services.visual_agent import create_visual_brief
+from app.services.image_generator import generate_post_illustrations
+from app.services.account_scope import EDITOR, PLATFORM_OWNER, SUBSCRIBER_ADMIN
+
+
+# ---------------------------------------------------------------------------
+# Pipeline thresholds & retry limits
+# ---------------------------------------------------------------------------
+VIRAL_THRESHOLD = 70       # Idea must score ≥ 70 % viral potential
+WRITER_THRESHOLD = 80      # Writer must score ≥ 80 % quality
+REVIEWER_THRESHOLD = 70    # Reviewer must score ≥ 70 % to proceed
+FINAL_THRESHOLD = 70       # Final review must score ≥ 70 % to approve
+MAX_WRITER_ATTEMPTS = 3    # Max writer retries per reviewer cycle
+MAX_REVIEWER_CYCLES = 2    # Max writer → reviewer loops before giving up
 
 
 def _db() -> Session:
@@ -29,7 +44,7 @@ def _get_auto_idea_actor(db: Session, user_id: int | None) -> User | None:
 
     return (
         db.query(User)
-        .filter(User.is_active.is_(True), User.role.in_(["admin", "editor"]))
+        .filter(User.is_active.is_(True), User.role.in_([SUBSCRIBER_ADMIN, EDITOR, PLATFORM_OWNER, "platform_admin"]))
         .order_by(User.id.asc())
         .first()
     )
@@ -38,13 +53,205 @@ def _get_auto_idea_actor(db: Session, user_id: int | None) -> User | None:
 def _get_account_actor(db: Session, account_id: int) -> User | None:
     return (
         db.query(User)
-        .filter(User.account_id == account_id, User.is_active.is_(True), User.role.in_(["admin", "editor"]))
+        .filter(User.account_id == account_id, User.is_active.is_(True), User.role.in_([SUBSCRIBER_ADMIN, EDITOR]))
         .order_by(User.role.asc(), User.id.asc())
         .first()
     )
 
 
-@celery_app.task(name="app.workers.tasks.generate_content_job")
+@celery_app.task(name="app.workers.tasks.auto_pipeline_for_idea_job")
+def auto_pipeline_for_idea_job(calendar_id: int, account_id: int) -> dict:
+    """Full 5-stage auto-pipeline for a single idea.
+
+    Stage 1  Researcher check  — idea must be in calendar (already viral-filtered ≥ 70%)
+    Stage 2  Writer            — human-like viral content, retries up to MAX_WRITER_ATTEMPTS per cycle until ≥ 80%
+    Stage 3  Reviewer          — independent review ≥ 70%, sends back to Writer if failed (max MAX_REVIEWER_CYCLES)
+    Stage 4  Visual Designer   — create_visual_brief() + generate_post_illustrations()
+    Stage 5  Final Review      — final quality check ≥ 70% → status = "approved"
+    Publisher waits for human to click Post.
+    """
+    db = _db()
+    try:
+        calendar_item = db.query(ContentCalendar).filter(ContentCalendar.id == calendar_id).first()
+        if not calendar_item:
+            return {"status": "failed", "message": f"Calendar item {calendar_id} not found"}
+
+        actor = _get_account_actor(db, account_id)
+        if not actor:
+            return {"status": "failed", "message": f"No actor found for account {account_id}"}
+
+        # Load page context for all agents
+        from app.models.entities import Page
+        page = db.query(Page).filter(Page.id == calendar_item.page_id).first() if calendar_item.page_id else None
+
+        # Stage 1: Find or create Post (idempotent — avoid duplicate posts on retry)
+        post = db.query(Post).filter(
+            Post.calendar_id == calendar_id,
+            Post.status.notin_(["posted", "approved"]),
+        ).first()
+        if not post:
+            post = Post(
+                account_id=account_id,
+                calendar_id=calendar_item.id,
+                page_id=calendar_item.page_id,
+                title=calendar_item.title,
+                content_pillar=calendar_item.content_pillar,
+                target_audience=calendar_item.target_audience,
+                tone=calendar_item.tone,
+                post_length=calendar_item.post_length or "medium",
+                reference_notes=calendar_item.notes,
+                status="idea",
+                created_by_id=actor.id,
+            )
+            db.add(post)
+            db.commit()
+            db.refresh(post)
+
+        # -----------------------------------------------------------------------
+        # Stages 2 + 3: Writer → Reviewer loop (max MAX_REVIEWER_CYCLES rounds)
+        # -----------------------------------------------------------------------
+        quality_score = 0
+        review_score = 0
+        reviewer_feedback = ""
+        reviewer_passed = False
+
+        for review_cycle in range(MAX_REVIEWER_CYCLES + 1):
+            # Stage 2: Writer — retry until quality ≥ WRITER_THRESHOLD or out of attempts
+            writer_passed = False
+            for attempt in range(1, MAX_WRITER_ATTEMPTS + 1):
+                post.status = "generating"
+                post.last_error = None
+                db.commit()
+
+                try:
+                    result = generate_content(
+                        db,
+                        actor,
+                        GenerateContentRequest(
+                            topic=post.title,
+                            content_pillar=post.content_pillar,
+                            target_audience=post.target_audience or "ประชาชนทั่วไป",
+                            tone=post.tone or "conversational and engaging",
+                            post_length=post.post_length,
+                            # Pass reviewer feedback as reference so writer improves
+                            reference_notes=(
+                                f"[Reviewer feedback cycle {review_cycle}]: {reviewer_feedback}\n\n"
+                                + (post.reference_notes or "")
+                            ).strip() if reviewer_feedback else post.reference_notes,
+                            post_id=post.id,
+                            page_id=post.page_id,
+                        ),
+                    )
+                except Exception as exc:
+                    post.status = "failed"
+                    post.last_error = f"Writer error (attempt {attempt}): {exc}"
+                    db.commit()
+                    return {"status": "writer_error", "error": str(exc), "post_id": post.id}
+
+                db.refresh(post)
+                quality_score = post.quality_score or result.get("quality_score", 0)
+
+                if quality_score >= WRITER_THRESHOLD:
+                    writer_passed = True
+                    break
+
+                post.last_error = (
+                    f"Writer attempt {attempt}/{MAX_WRITER_ATTEMPTS} "
+                    f"(cycle {review_cycle + 1}): quality {quality_score}/100 — need {WRITER_THRESHOLD}%"
+                )
+                db.commit()
+
+            if not writer_passed:
+                post.status = "failed"
+                post.last_error = (
+                    f"Writer failed to reach {WRITER_THRESHOLD}% after {MAX_WRITER_ATTEMPTS} attempts "
+                    f"(review cycle {review_cycle + 1}). Final score: {quality_score}/100"
+                )
+                db.commit()
+                return {"status": "writer_failed", "quality_score": quality_score, "post_id": post.id}
+
+            # Stage 3: Reviewer — independent quality check
+            review_result = review_content_agent(db, actor, post, page)
+            review_score = review_result.get("review_score", 0)
+            reviewer_feedback = review_result.get("feedback", "")
+
+            if review_result.get("passed", False):
+                reviewer_passed = True
+                break
+
+            # Reviewer rejected — send back to writer (next cycle will use feedback)
+            if review_cycle < MAX_REVIEWER_CYCLES:
+                post.last_error = (
+                    f"Reviewer cycle {review_cycle + 1}: score {review_score}/100 — "
+                    f"back to Writer. Feedback: {reviewer_feedback}"
+                )
+                db.commit()
+
+        if not reviewer_passed:
+            post.status = "failed"
+            post.last_error = (
+                f"Reviewer rejected after {MAX_REVIEWER_CYCLES} cycles. "
+                f"Final review score: {review_score}/100. {reviewer_feedback}"
+            )
+            db.commit()
+            return {"status": "reviewer_failed", "review_score": review_score, "post_id": post.id}
+
+        # -----------------------------------------------------------------------
+        # Stage 4: Visual Designer — generate brief + image
+        # -----------------------------------------------------------------------
+        post.status = "draft"
+        db.commit()
+
+        try:
+            create_visual_brief(db, post, actor)
+            db.refresh(post)
+            generate_post_illustrations(db, post, actor, variant_count=1)
+            db.refresh(post)
+        except Exception as exc:
+            # Visual failure is non-fatal — proceed without image
+            post.last_error = f"Visual Designer warning: {exc}. Proceeding without image."
+            db.commit()
+
+        # -----------------------------------------------------------------------
+        # Stage 5: Final Review
+        # -----------------------------------------------------------------------
+        final_result = final_review_agent(db, actor, post)
+        final_score = final_result.get("final_score", 0)
+
+        # Approve — Publisher waits for human action
+        post.status = "approved"
+        post.approved_by_id = actor.id
+        post.approved_at = datetime.now(timezone.utc)
+        post.last_error = None
+        calendar_item.status = "approved"
+        db.commit()
+
+        create_audit_entry(
+            db, actor.id, "post", post.id, "auto_pipeline_complete",
+            {"status": "draft"},
+            {
+                "status": "approved",
+                "quality_score": quality_score,
+                "review_score": review_score,
+                "final_score": final_score,
+            },
+        )
+        return {
+            "status": "approved",
+            "post_id": post.id,
+            "calendar_id": calendar_id,
+            "quality_score": quality_score,
+            "review_score": review_score,
+            "final_score": final_score,
+        }
+
+    except Exception as exc:
+        db.rollback()
+        return {"status": "error", "message": str(exc), "calendar_id": calendar_id}
+    finally:
+        db.close()
+
+
 def generate_content_job(post_id: int, user_id: int) -> dict:
     db = _db()
     try:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 POST_STATUSES = {
@@ -20,6 +20,7 @@ POST_STATUSES = {
 
 class CalendarBase(BaseModel):
     account_id: int | None = None
+    page_id: int | None = None
     title: str = Field(min_length=3, max_length=255)
     topic: str = Field(min_length=3, max_length=255)
     content_pillar: str = Field(min_length=2, max_length=120)
@@ -28,6 +29,7 @@ class CalendarBase(BaseModel):
     post_length: str = Field(default="medium", max_length=50)
     status: str = Field(default="idea", max_length=50)
     scheduled_date: date | None = None
+    scheduled_for: datetime | None = None
     notes: str | None = None
 
 
@@ -44,6 +46,8 @@ class CalendarUpdate(BaseModel):
     post_length: str | None = Field(default=None, max_length=50)
     status: str | None = Field(default=None, max_length=50)
     scheduled_date: date | None = None
+    scheduled_for: datetime | None = None
+    page_id: int | None = None
     notes: str | None = None
 
 
@@ -70,6 +74,7 @@ class AutoIdeaDiscoveryRequest(BaseModel):
 
 
 class AutoIdeaDiscoveryItem(BaseModel):
+    page_id: int | None = None
     title: str = Field(min_length=3, max_length=255)
     topic: str = Field(min_length=3, max_length=255)
     content_pillar: str = Field(min_length=2, max_length=120)
@@ -79,6 +84,7 @@ class AutoIdeaDiscoveryItem(BaseModel):
     notes: str | None = None
     source_name: str
     source_url: str
+    viral_score: int | None = None
 
 
 class AutoIdeaDiscoveryResponse(BaseModel):
@@ -175,6 +181,7 @@ class PostRead(PostBase):
 
 
 class GenerateContentRequest(BaseModel):
+    page_id: int | None = None
     topic: str = Field(min_length=3, max_length=255)
     content_pillar: str = Field(min_length=2, max_length=120)
     target_audience: str = Field(min_length=2, max_length=255)
@@ -212,8 +219,25 @@ class PageBase(BaseModel):
     facebook_page_id: str = Field(min_length=2, max_length=255)
     page_category: str | None = Field(default=None, max_length=255)
     description: str | None = None
+    default_tone: str | None = Field(default=None, max_length=80)
+    content_pillars: list[str] | None = None
     is_active: bool = True
     access_token: str | None = None
+
+    @field_validator("default_tone")
+    @classmethod
+    def clean_default_tone(cls, value: str | None) -> str | None:
+        return value.strip() if value else value
+
+    @field_validator("content_pillars")
+    @classmethod
+    def clean_content_pillars(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        cleaned = [item.strip() for item in value if item and item.strip()]
+        if not cleaned:
+            raise ValueError("content_pillars cannot be empty")
+        return cleaned
 
 
 class PageCreate(PageBase):
@@ -225,8 +249,43 @@ class PageUpdate(BaseModel):
     facebook_page_id: str | None = Field(default=None, min_length=2, max_length=255)
     page_category: str | None = Field(default=None, max_length=255)
     description: str | None = None
+    default_tone: str | None = Field(default=None, max_length=80)
+    content_pillars: list[str] | None = None
     is_active: bool | None = None
     access_token: str | None = None
+
+    @field_validator("default_tone")
+    @classmethod
+    def clean_default_tone(cls, value: str | None) -> str | None:
+        return value.strip() if value else value
+
+    @field_validator("content_pillars")
+    @classmethod
+    def clean_content_pillars(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        cleaned = [item.strip() for item in value if item and item.strip()]
+        if not cleaned:
+            raise ValueError("content_pillars cannot be empty")
+        return cleaned
+
+
+class PagePreferenceUpdate(BaseModel):
+    default_tone: str = Field(min_length=2, max_length=80)
+    content_pillars: list[str]
+
+    @field_validator("default_tone")
+    @classmethod
+    def clean_default_tone(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("content_pillars")
+    @classmethod
+    def clean_content_pillars(cls, value: list[str]) -> list[str]:
+        cleaned = [item.strip() for item in value if item and item.strip()]
+        if not cleaned:
+            raise ValueError("content_pillars cannot be empty")
+        return cleaned
 
 
 class PageRead(BaseModel):
@@ -238,6 +297,8 @@ class PageRead(BaseModel):
     facebook_page_id: str
     page_category: str | None
     description: str | None
+    default_tone: str | None
+    content_pillars: list[str] | None
     is_active: bool
     created_at: datetime
     updated_at: datetime

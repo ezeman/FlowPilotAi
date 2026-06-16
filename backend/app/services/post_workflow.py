@@ -23,7 +23,7 @@ ALLOWED_TRANSITIONS = {
     "failed": {"draft", "generating", "publishing"},
 }
 
-SENSITIVE_KEYS = {"facebook_page_access_token", "facebook_app_secret"}
+SENSITIVE_KEYS = {"facebook_page_access_token", "facebook_app_secret", "openai_api_key"}
 
 
 def create_audit_entry(
@@ -80,6 +80,12 @@ def schedule_post(db: Session, post: Post, actor: User, scheduled_for: datetime)
     before = {"status": post.status, "scheduled_for": str(post.scheduled_for)}
     post.status = "scheduled"
     post.scheduled_for = scheduled_for
+    if post.calendar:
+        post.calendar.scheduled_for = scheduled_for
+        post.calendar.scheduled_date = scheduled_for.date()
+        if post.page_id and not post.calendar.page_id:
+            post.calendar.page_id = post.page_id
+        post.calendar.status = "scheduled"
     db.commit()
     db.refresh(post)
     create_audit_entry(

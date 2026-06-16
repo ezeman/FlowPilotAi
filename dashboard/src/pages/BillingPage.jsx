@@ -5,6 +5,7 @@ import Spinner from "../components/Spinner";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LangContext";
 import { apiRequest } from "../services/api";
+import { isPlatformOwner } from "../utils/roles";
 
 const BANK_INFO = {
   bank_transfer: {
@@ -50,6 +51,7 @@ export default function BillingPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const isSubscriberAdmin = user?.role === "subscriber_admin";
+  const isPlatformAdmin = isPlatformOwner(user);
 
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState([]);
@@ -60,6 +62,8 @@ export default function BillingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [rejectForms, setRejectForms] = useState({});
+  const [processingRequestId, setProcessingRequestId] = useState(null);
 
   async function loadData() {
     setLoading(true);
@@ -67,7 +71,7 @@ export default function BillingPage() {
       const [plansData, subData, reqData] = await Promise.all([
         apiRequest("/accounts/plans"),
         apiRequest("/accounts/me/subscription").catch(() => null),
-        isSubscriberAdmin ? apiRequest("/billing/payment-requests") : Promise.resolve([]),
+        (isSubscriberAdmin || isPlatformAdmin) ? apiRequest("/billing/payment-requests") : Promise.resolve([]),
       ]);
       setPlans(plansData);
       setSubscription(subData);
@@ -76,6 +80,47 @@ export default function BillingPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function approvePayment(requestId) {
+    setProcessingRequestId(requestId);
+    setError("");
+    try {
+      await apiRequest(`/billing/payment-requests/${requestId}/approve`, { method: "POST" });
+      setMessage("Payment request approved.");
+      await loadData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProcessingRequestId(null);
+    }
+  }
+
+  async function rejectPayment(requestId) {
+    const reason = rejectForms[requestId]?.trim();
+    if (!reason) {
+      setError("Rejection reason is required.");
+      return;
+    }
+    setProcessingRequestId(requestId);
+    setError("");
+    try {
+      await apiRequest(`/billing/payment-requests/${requestId}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+      setMessage("Payment request rejected.");
+      setRejectForms((current) => {
+        const next = { ...current };
+        delete next[requestId];
+        return next;
+      });
+      await loadData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProcessingRequestId(null);
     }
   }
 
@@ -251,6 +296,7 @@ export default function BillingPage() {
                   <div key={req.id} className="surface-row">
                     <div>
                       <strong>{req.plan_code} — ฿{req.amount.toLocaleString()}</strong>
+                      {isPlatformAdmin && <p>{req.account_name || `Account #${req.account_id}`}</p>}
                       <p>{req.payment_method === "promptpay" ? t("billing.promptPay") : t("billing.bankTransfer")}{req.bank_name ? ` (${req.bank_name})` : ""}</p>
                       {req.reference_number && <p>{t("billing.ref")} {req.reference_number}</p>}
                       {req.transfer_date && <p>{t("billing.transferDateLabel")} {req.transfer_date}</p>}
@@ -260,6 +306,32 @@ export default function BillingPage() {
                       </p>
                     </div>
                     <StatusBadge status={req.status} t={t} />
+                    {isPlatformAdmin && req.status === "pending" && (
+                      <div className="button-row" style={{ justifyContent: "flex-end", minWidth: "260px" }}>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={processingRequestId === req.id}
+                          onClick={() => approvePayment(req.id)}
+                        >
+                          {processingRequestId === req.id ? "Processing..." : "Approve"}
+                        </button>
+                        <input
+                          placeholder="Reject reason"
+                          value={rejectForms[req.id] || ""}
+                          onChange={(event) => setRejectForms((current) => ({ ...current, [req.id]: event.target.value }))}
+                          style={{ minWidth: "160px" }}
+                        />
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={processingRequestId === req.id || !rejectForms[req.id]?.trim()}
+                          onClick={() => rejectPayment(req.id)}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
 from app.db.session import get_db
-from app.models.entities import ContentCalendar, User
+from app.models.entities import ContentCalendar, Page, User
 from app.schemas.content import (
     AutoIdeaDiscoveryRequest,
     AutoIdeaDiscoveryResponse,
@@ -22,7 +22,7 @@ from app.services.idea_research_agent import (
     list_trusted_sources,
     update_auto_idea_schedule,
 )
-from app.services.account_scope import ensure_account_access, require_account, scope_query
+from app.services.account_scope import ensure_account_access, require_account, require_page_access, scope_page_visible_query
 from app.workers.tasks import auto_generate_daily_ideas_job
 
 router = APIRouter()
@@ -33,7 +33,8 @@ def list_calendar(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("subscriber_admin", "editor")),
 ) -> list[ContentCalendar]:
-    return scope_query(db.query(ContentCalendar), ContentCalendar, current_user).order_by(
+    return scope_page_visible_query(db.query(ContentCalendar), ContentCalendar, db, current_user).order_by(
+        ContentCalendar.scheduled_for.asc().nullslast(),
         ContentCalendar.scheduled_date.asc().nullslast(),
         ContentCalendar.created_at.desc(),
     ).all()
@@ -87,6 +88,12 @@ def create_calendar(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("subscriber_admin", "editor")),
 ) -> ContentCalendar:
+    if payload.page_id is not None:
+        page = db.query(Page).filter(Page.id == payload.page_id).first()
+        if not page:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
+        ensure_account_access(page, current_user)
+    require_page_access(db, current_user, payload.page_id)
     item = ContentCalendar(**payload.model_dump(exclude={"account_id"}), account_id=require_account(current_user), created_by_id=current_user.id)
     db.add(item)
     db.commit()
@@ -104,6 +111,7 @@ def get_calendar(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Calendar item not found")
     ensure_account_access(item, current_user)
+    require_page_access(db, current_user, item.page_id)
     return item
 
 
@@ -118,6 +126,14 @@ def update_calendar(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Calendar item not found")
     ensure_account_access(item, current_user)
+    updates = payload.model_dump(exclude_unset=True)
+    next_page_id = updates.get("page_id", item.page_id)
+    if next_page_id is not None:
+        page = db.query(Page).filter(Page.id == next_page_id).first()
+        if not page:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
+        ensure_account_access(page, current_user)
+    require_page_access(db, current_user, next_page_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         if field == "account_id":
             continue
@@ -137,6 +153,7 @@ def delete_calendar(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Calendar item not found")
     ensure_account_access(item, current_user)
+    require_page_access(db, current_user, item.page_id)
     db.delete(item)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

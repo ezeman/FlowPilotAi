@@ -7,23 +7,54 @@ from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.entities import AIRun, Post, User
+from app.models.entities import AIRun, Page, Post, User
 from app.schemas.content import GenerateContentRequest
 
 
-SYSTEM_PROMPT = """
-You are a Thai-language editorial AI for a Facebook fanpage named 'อากาศสะอาด'.
-Write educational, trustworthy, non-salesy Facebook content about clean air, indoor air quality, environmental innovation, health, CO2, VOC, ventilation, mold, climate, and practical lifestyle tips.
+SYSTEM_PROMPT_BASE = """
+You are a Thai-language viral content writer for a Facebook fanpage.
+Write posts that feel human, warm, and engaging — not robotic or formal.
 Rules:
 - Thai language only
-- Professional but easy to understand
-- No product selling
-- No exaggerated medical claims
-- Include practical advice
-- Suitable for Facebook post
-- Default length: 120-180 Thai words
+- Hook: start with a surprising fact, bold statement, or relatable question in the first 2 lines
+- Storytelling: use concrete everyday examples that readers can picture
+- Conversational, warm tone — like a knowledgeable friend, not a report
+- Ask 1 engaging question or include a CTA to encourage comments/shares
+- No product selling, no exaggerated medical claims
+- Caption length: 120-180 Thai words
+- Include 3-5 relevant hashtags
+- Create a vivid image_prompt for the Visual Designer to generate an image
+- quality_score: honestly rate your own work 0-100 for viral potential
 - Return valid JSON with keys: title, caption, hashtags, image_prompt, reference_suggestions, quality_score
 """.strip()
+
+
+def _build_system_prompt(page: "Page | None") -> str:
+    viral_rules = (
+        "- Hook: เปิดด้วยข้อเท็จจริงที่น่าแปลกใจ คำถามที่โดนใจ หรือประโยคกระชับที่อ่านแล้วอยากอ่านต่อ\n"
+        "- Storytelling: ยกตัวอย่างชีวิตจริงที่ผู้อ่านนึกภาพตาม ไม่ใช่แค่ข้อมูลแห้ง\n"
+        "- โทนอบอุ่น เป็นกันเอง — เหมือนเพื่อนที่รู้เรื่องนี้ดี ไม่ใช่รายงานวิชาการ\n"
+        "- จบด้วยคำถามหรือ CTA ที่กระตุ้นให้แสดงความคิดเห็น แชร์ หรือลองทำ\n"
+        "- ความยาว caption: 120-180 คำภาษาไทย\n"
+        "- hashtags: 3-5 อัน ที่เกี่ยวข้องกับเนื้อหาและเพจ\n"
+        "- image_prompt: อธิบายภาพที่ต้องการให้ชัดเจน บอก style, mood, องค์ประกอบ\n"
+        "- quality_score: ให้คะแนนตัวเองอย่างตรงไปตรงมา 0-100 สำหรับโอกาส viral\n"
+        "- Return valid JSON: title, caption, hashtags, image_prompt, reference_suggestions, quality_score"
+    )
+    if page:
+        page_name = page.name or "Facebook Fanpage"
+        pillars = ", ".join(page.content_pillars or []) if page.content_pillars else "general topics"
+        category = page.page_category or "General"
+        desc_line = f"\nPage description: {page.description}" if page.description else ""
+        return (
+            f"You are a Thai-language viral content writer for the Facebook fanpage '{page_name}'.\n"
+            f"Write educational, trustworthy, human-like Facebook posts about: {pillars} ({category}).{desc_line}\n"
+            f"Rules:\n"
+            f"- Thai language only\n"
+            f"- No product selling, no exaggerated claims\n"
+            f"{viral_rules}"
+        )
+    return SYSTEM_PROMPT_BASE
 
 
 def _coerce_list(value: object) -> list[str]:
@@ -81,6 +112,10 @@ def generate_content(db: Session, user: User, payload: GenerateContentRequest) -
     linked_post = None
     if payload.post_id:
         linked_post = db.query(Post).filter(Post.id == payload.post_id).first()
+    linked_page = None
+    page_id = payload.page_id or (linked_post.page_id if linked_post else None)
+    if page_id:
+        linked_page = db.query(Page).filter(Page.id == page_id).first()
 
     ai_run = AIRun(
         account_id=linked_post.account_id if linked_post else user.account_id,
@@ -104,7 +139,7 @@ def generate_content(db: Session, user: User, payload: GenerateContentRequest) -
                 model=settings.openai_model,
                 response_format={"type": "json_object"},
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": _build_system_prompt(linked_page)},
                     {
                         "role": "user",
                         "content": json.dumps(
@@ -115,6 +150,15 @@ def generate_content(db: Session, user: User, payload: GenerateContentRequest) -
                                 "tone": payload.tone,
                                 "post_length": payload.post_length,
                                 "reference_notes": payload.reference_notes,
+                                "page": {
+                                    "name": linked_page.name,
+                                    "category": linked_page.page_category,
+                                    "description": linked_page.description,
+                                    "default_tone": linked_page.default_tone,
+                                    "content_pillars": linked_page.content_pillars,
+                                }
+                                if linked_page
+                                else None,
                             },
                             ensure_ascii=False,
                         ),

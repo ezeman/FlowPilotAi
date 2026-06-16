@@ -16,7 +16,7 @@ from app.schemas.content import (
     ReviewDecisionRequest,
     SchedulePostRequest,
 )
-from app.services.account_scope import ensure_account_access, require_account, scope_query
+from app.services.account_scope import ensure_account_access, require_account, require_page_access, scope_page_visible_query
 from app.services.image_generator import generate_post_illustrations
 from app.services.openai_agent import generate_content
 from app.services.post_workflow import approve_post, create_audit_entry, schedule_post
@@ -32,11 +32,13 @@ def _validate_related_entities(db: Session, current_user: User, page_id: int | N
         if not page:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
         ensure_account_access(page, current_user)
+        require_page_access(db, current_user, page.id)
     if calendar_id is not None:
         calendar_item = db.query(ContentCalendar).filter(ContentCalendar.id == calendar_id).first()
         if not calendar_item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Calendar item not found")
         ensure_account_access(calendar_item, current_user)
+        require_page_access(db, current_user, calendar_item.page_id or page_id)
 
 
 @router.get("", response_model=list[PostRead])
@@ -44,7 +46,7 @@ def list_posts(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("subscriber_admin", "editor")),
 ) -> list[Post]:
-    return scope_query(db.query(Post), Post, current_user).order_by(Post.updated_at.desc()).all()
+    return scope_page_visible_query(db.query(Post), Post, db, current_user).order_by(Post.updated_at.desc()).all()
 
 
 @router.post("", response_model=PostRead, status_code=status.HTTP_201_CREATED)
@@ -54,8 +56,15 @@ def create_post(
     current_user: User = Depends(require_roles("subscriber_admin", "editor")),
 ) -> Post:
     _validate_related_entities(db, current_user, payload.page_id, payload.calendar_id)
+    page_id = payload.page_id
+    if page_id is None and payload.calendar_id is not None:
+        calendar_item = db.query(ContentCalendar).filter(ContentCalendar.id == payload.calendar_id).first()
+        page_id = calendar_item.page_id if calendar_item else None
+    require_page_access(db, current_user, page_id)
+    post_payload = payload.model_dump(exclude={"account_id"})
+    post_payload["page_id"] = page_id
     post = Post(
-        **payload.model_dump(exclude={"account_id"}),
+        **post_payload,
         account_id=require_account(current_user),
         created_by_id=current_user.id,
     )
@@ -76,6 +85,7 @@ def get_post(
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     ensure_account_access(post, current_user)
+    require_page_access(db, current_user, post.page_id)
     return post
 
 
@@ -90,6 +100,7 @@ def update_post(
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     ensure_account_access(post, current_user)
+    require_page_access(db, current_user, post.page_id)
     _validate_related_entities(
         db,
         current_user,
@@ -125,6 +136,7 @@ def delete_post(
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     ensure_account_access(post, current_user)
+    require_page_access(db, current_user, post.page_id)
     if post.status not in {"idea", "draft", "failed"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -147,6 +159,13 @@ def generate_content_preview(
         if not linked_post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
         ensure_account_access(linked_post, current_user)
+        require_page_access(db, current_user, linked_post.page_id)
+    if payload.page_id:
+        page = db.query(Page).filter(Page.id == payload.page_id).first()
+        if not page:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
+        ensure_account_access(page, current_user)
+        require_page_access(db, current_user, page.id)
     result = generate_content(db, current_user, payload)
     return GenerateContentResponse(**result)
 
@@ -161,6 +180,7 @@ def enqueue_generation(
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     ensure_account_access(post, current_user)
+    require_page_access(db, current_user, post.page_id)
     task = generate_content_job.delay(post_id, current_user.id)
     return {"task_id": task.id, "message": "Content generation queued"}
 
@@ -175,6 +195,7 @@ def enqueue_review(
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     ensure_account_access(post, _)
+    require_page_access(db, _, post.page_id)
     task = review_content_job.delay(post_id)
     return {"task_id": task.id, "message": "Review queued"}
 
@@ -190,6 +211,7 @@ def review_post(
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     ensure_account_access(post, current_user)
+    require_page_access(db, current_user, post.page_id)
     return approve_post(db, post, current_user, payload.approved, payload.notes)
 
 
@@ -204,6 +226,7 @@ def schedule_existing_post(
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     ensure_account_access(post, current_user)
+    require_page_access(db, current_user, post.page_id)
     return schedule_post(db, post, current_user, payload.scheduled_for)
 
 
@@ -217,6 +240,7 @@ def publish_post(
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     ensure_account_access(post, current_user)
+    require_page_access(db, current_user, post.page_id, publish=True)
     if post.status != "approved" and post.status != "scheduled":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only approved or scheduled posts can be published")
     task = publish_facebook_post_job.delay(post_id)
@@ -234,6 +258,7 @@ def generate_post_image(
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     ensure_account_access(post, current_user)
+    require_page_access(db, current_user, post.page_id)
     before_asset_count = len(post.assets)
     request = payload or ImageGenerationRequest()
     updated_post = generate_post_illustrations(db, post, current_user, request.variant_count)
@@ -259,6 +284,7 @@ def generate_visual_brief(
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     ensure_account_access(post, current_user)
+    require_page_access(db, current_user, post.page_id)
     before_prompt = post.image_prompt
     updated_post = create_visual_brief(db, post, current_user)
     create_audit_entry(

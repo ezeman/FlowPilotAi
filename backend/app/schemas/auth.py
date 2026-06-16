@@ -75,7 +75,6 @@ class UserRead(BaseModel):
 
     id: int
     account_id: int | None
-    active_account_id: int | None = None
     email: EmailStr
     full_name: str
     role: str

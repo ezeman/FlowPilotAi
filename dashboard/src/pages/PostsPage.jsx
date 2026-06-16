@@ -26,6 +26,7 @@ function canDelete(item) {
 export default function PostsPage() {
   const { hasSubscription } = useAuth();
   const { t } = useLang();
+  const subscriptionMessage = "Your account does not have an active subscription. Please submit a payment request from Billing.";
   const [posts, setPosts] = useState([]);
   const [calendarItems, setCalendarItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +122,10 @@ export default function PostsPage() {
     : libraryItems;
 
   async function deleteDraft(postId) {
+    if (!hasSubscription) {
+      setError(subscriptionMessage);
+      return;
+    }
     const confirmed = window.confirm(t("posts.confirmDelete"));
     if (!confirmed) return;
     setDeletingId(postId);
@@ -145,9 +150,15 @@ export default function PostsPage() {
           <p>{t("posts.subtitle")}</p>
         </div>
         <div className="hero-actions">
-          <Link className="primary-button" to="/studio">
-            {t("posts.openStudio")}
-          </Link>
+          {hasSubscription ? (
+            <Link className="primary-button" to="/studio">
+              {t("posts.openStudio")}
+            </Link>
+          ) : (
+            <button className="primary-button" type="button" disabled title={subscriptionMessage}>
+              {t("posts.openStudio")}
+            </button>
+          )}
         </div>
       </section>
 
@@ -167,6 +178,14 @@ export default function PostsPage() {
         </div>
 
         {error && <div className="inline-error" style={{ marginTop: "1rem" }}>{error}</div>}
+        {!hasSubscription && (
+          <div className="subscription-warning" style={{ marginTop: "1rem" }}>
+            <div>
+              <strong>{subscriptionMessage}</strong>
+            </div>
+            <Link className="primary-button" to="/billing">Billing</Link>
+          </div>
+        )}
         {message && <div className="inline-success" style={{ marginTop: "1rem" }}>{message}</div>}
 
         {loading ? (
@@ -189,13 +208,25 @@ export default function PostsPage() {
                 </div>
                 <StatusPill status={item.status} />
                 <div className="button-row">
-                  <Link className="ghost-button" to={item.to}>
-                    {item.primaryAction}
-                  </Link>
-                  {item.kind === "post" && item.status === "approved" && (
-                    <Link className="secondary-button" to={`/posts/${item.entityId}/schedule`}>
-                      Schedule
+                  {hasSubscription ? (
+                    <Link className="ghost-button" to={item.to}>
+                      {item.primaryAction}
                     </Link>
+                  ) : (
+                    <button className="ghost-button" type="button" disabled title={subscriptionMessage}>
+                      {item.primaryAction}
+                    </button>
+                  )}
+                  {item.kind === "post" && item.status === "approved" && (
+                    hasSubscription ? (
+                      <Link className="secondary-button" to={`/posts/${item.entityId}/schedule`}>
+                        Schedule
+                      </Link>
+                    ) : (
+                      <button className="secondary-button" type="button" disabled title={subscriptionMessage}>
+                        Schedule
+                      </button>
+                    )
                   )}
                   {canDelete(item) && (
                     <button
@@ -203,6 +234,7 @@ export default function PostsPage() {
                       type="button"
                       onClick={() => deleteDraft(item.entityId)}
                       disabled={deletingId === item.entityId || !hasSubscription}
+                      title={!hasSubscription ? subscriptionMessage : undefined}
                     >
                       {deletingId === item.entityId ? t("common.deleting") : t("common.delete")}
                     </button>

@@ -52,6 +52,7 @@ class User(TimestampMixin, Base):
 
     account: Mapped[Account | None] = relationship(back_populates="users", foreign_keys=[account_id])
     owned_accounts: Mapped[list[Account]] = relationship(back_populates="created_by", foreign_keys="Account.created_by_id")
+    page_assignments: Mapped[list[UserPageAssignment]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Account(TimestampMixin, Base):
@@ -115,10 +116,29 @@ class Page(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     page_category: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    default_tone: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    content_pillars: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
     account: Mapped[Account] = relationship(back_populates="pages")
     posts: Mapped[list[Post]] = relationship(back_populates="page")
     publish_logs: Mapped[list[PublishLog]] = relationship(back_populates="page")
+    user_assignments: Mapped[list[UserPageAssignment]] = relationship(back_populates="page", cascade="all, delete-orphan")
+    content_calendar_items: Mapped[list[ContentCalendar]] = relationship(back_populates="page")
+
+
+class UserPageAssignment(TimestampMixin, Base):
+    __tablename__ = "user_page_assignments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    page_id: Mapped[int] = mapped_column(ForeignKey("pages.id", ondelete="CASCADE"), index=True)
+    can_create_content: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_edit_content: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_publish: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    user: Mapped[User] = relationship(back_populates="page_assignments")
+    page: Mapped[Page] = relationship(back_populates="user_assignments")
 
 
 class ContentCalendar(TimestampMixin, Base):
@@ -126,6 +146,7 @@ class ContentCalendar(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    page_id: Mapped[int | None] = mapped_column(ForeignKey("pages.id", ondelete="SET NULL"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255))
     topic: Mapped[str] = mapped_column(String(255))
     content_pillar: Mapped[str] = mapped_column(String(120), index=True)
@@ -134,10 +155,12 @@ class ContentCalendar(TimestampMixin, Base):
     post_length: Mapped[str] = mapped_column(String(50), default="medium")
     status: Mapped[str] = mapped_column(String(50), default="idea")
     scheduled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     account: Mapped[Account] = relationship(back_populates="content_calendar_items")
+    page: Mapped[Page | None] = relationship(back_populates="content_calendar_items")
     posts: Mapped[list[Post]] = relationship(back_populates="calendar")
 
 

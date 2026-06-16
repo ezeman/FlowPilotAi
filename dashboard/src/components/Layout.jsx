@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LangContext";
-import { apiRequest } from "../services/api";
+import { isPlatformOwner, roleLabel } from "../utils/roles";
 import LanguageSwitcher from "./LanguageSwitcher";
 
 function IconDashboard() {
@@ -38,6 +37,14 @@ function IconPosts() {
   );
 }
 
+function IconReview() {
+  return (
+    <svg className="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M2 4a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H8l-4 4v-4H4a2 2 0 01-2-2V4zm9.7 2.3L9 9l-1.2-1.2-1.4 1.4L9 12l4.1-4.1-1.4-1.6z" />
+    </svg>
+  );
+}
+
 function IconLogs() {
   return (
     <svg className="nav-icon" viewBox="0 0 20 20" fill="currentColor">
@@ -62,6 +69,14 @@ function IconBilling() {
   );
 }
 
+function IconUsers() {
+  return (
+    <svg className="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M7 9a3 3 0 100-6 3 3 0 000 6zm6 1a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2 16a4 4 0 014-4h2a4 4 0 014 4v1H2v-1zm11 1v-1a4.9 4.9 0 00-1.2-3.2A4 4 0 0118 16v1h-5z" />
+    </svg>
+  );
+}
+
 function getInitials(name) {
   if (!name) return "AI";
   return name
@@ -73,30 +88,33 @@ function getInitials(name) {
 }
 
 export default function Layout({ children }) {
-  const { user, activeAccountId, switchAccount, logout } = useAuth();
+  const { user, logout } = useAuth();
   const { t } = useLang();
   const navigate = useNavigate();
-  const [accounts, setAccounts] = useState([]);
+  const platformOwner = isPlatformOwner(user);
 
-  const baseNavigation = [
+  const tenantNavigation = [
     { to: "/", label: t("nav.dashboard"), icon: <IconDashboard />, end: true },
     { to: "/studio", label: t("nav.studio"), icon: <IconStudio /> },
     { to: "/calendar", label: t("nav.calendar"), icon: <IconCalendar /> },
     { to: "/posts", label: t("nav.posts"), icon: <IconPosts /> },
+    { to: "/review-queue", label: t("nav.reviewQueue"), icon: <IconReview /> },
     { to: "/publish-logs", label: t("nav.logs"), icon: <IconLogs /> },
     { to: "/settings", label: t("nav.settings"), icon: <IconSettings /> },
   ];
 
-  const navigation = user?.role === "subscriber_admin"
-    ? [...baseNavigation.slice(0, -1), { to: "/billing", label: t("nav.billing"), icon: <IconBilling /> }, baseNavigation[baseNavigation.length - 1]]
-    : baseNavigation;
+  const platformNavigation = [
+    { to: "/", label: t("nav.dashboard"), icon: <IconDashboard />, end: true },
+    { to: "/billing", label: t("nav.billing"), icon: <IconBilling /> },
+    { to: "/users", label: t("nav.users"), icon: <IconUsers /> },
+    { to: "/settings", label: t("nav.settings"), icon: <IconSettings /> },
+  ];
 
-  useEffect(() => {
-    if (user?.role !== "platform_admin") return;
-    apiRequest("/accounts")
-      .then((data) => setAccounts(data))
-      .catch(() => setAccounts([]));
-  }, [user?.role, activeAccountId]);
+  const navigation = platformOwner
+    ? platformNavigation
+    : user?.role === "subscriber_admin"
+      ? [...tenantNavigation.slice(0, -1), { to: "/billing", label: t("nav.billing"), icon: <IconBilling /> }, tenantNavigation[tenantNavigation.length - 1]]
+      : tenantNavigation;
 
   return (
     <div className="app-shell">
@@ -122,18 +140,7 @@ export default function Layout({ children }) {
         </nav>
 
         <div className="sidebar-footer">
-          {user?.role === "platform_admin" && accounts.length > 0 && (
-            <label className="stack-form" style={{ gap: "0.35rem" }}>
-              <span style={{ color: "var(--sidebar-muted)", fontSize: "0.76rem", fontWeight: 700 }}>{t("layout.activeAccount")}</span>
-              <select value={activeAccountId || ""} onChange={(event) => switchAccount(event.target.value)}>
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+          {platformOwner && <p className="muted-label">Platform View</p>}
           <LanguageSwitcher />
           <button
             type="button"
@@ -144,7 +151,7 @@ export default function Layout({ children }) {
             <div className="user-avatar">{getInitials(user?.full_name)}</div>
             <div>
               <strong>{user?.full_name || t("layout.defaultOperator")}</strong>
-              <p>{user?.account?.name || t("layout.platform")} · {user?.role || "editor"}</p>
+              <p>{user?.account?.name || t("layout.platform")} · {roleLabel(user?.role)}</p>
             </div>
           </button>
           <button className="secondary-button" type="button" onClick={logout}>

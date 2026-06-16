@@ -7,12 +7,13 @@ from app.api.deps import get_current_user, require_roles
 from app.db.session import get_db
 from app.models.entities import Account, AccountSubscription, SubscriptionPlan, User
 from app.schemas.tenant import AccountCreate, AccountRead, AccountSubscriptionRead, AccountSubscriptionUpdate, SubscriptionPlanRead
-from app.services.account_scope import get_active_subscription, get_current_account, is_platform_admin, require_account
+from app.services.account_scope import get_active_subscription, get_current_account, get_usage_snapshot, is_platform_admin, require_account
 
 router = APIRouter()
 
 
-def _hydrate_account(account: Account) -> AccountRead:
+def _hydrate_account(account: Account, db: Session | None = None) -> AccountRead:
+    usage = get_usage_snapshot(db, account) if db else {}
     return AccountRead.model_validate(
         {
             "id": account.id,
@@ -24,8 +25,8 @@ def _hydrate_account(account: Account) -> AccountRead:
             "updated_at": account.updated_at,
             "active_subscription": get_active_subscription(account),
             "usage": {
-                "pages_used": len(account.pages),
-                "users_used": len(account.users),
+                "pages_used": usage.get("pages_used", len(account.pages)),
+                "users_used": usage.get("users_used", len(account.users)),
                 "posts_used": len(account.posts),
                 "ideas_used": len(account.content_calendar_items),
             },
@@ -40,10 +41,10 @@ def list_accounts(
 ) -> list[Account]:
     if is_platform_admin(current_user):
         accounts = db.query(Account).order_by(Account.created_at.desc()).all()
-        return [_hydrate_account(account) for account in accounts]
+        return [_hydrate_account(account, db) for account in accounts]
 
     account = get_current_account(db, current_user)
-    return [_hydrate_account(account)] if account else []
+    return [_hydrate_account(account, db)] if account else []
 
 
 @router.get("/plans", response_model=list[SubscriptionPlanRead])
@@ -86,7 +87,7 @@ def create_account(
     db.add(AccountSubscription(account_id=account.id, plan_id=plan.id, status="active", auto_renew=False))
     db.commit()
     db.refresh(account)
-    return _hydrate_account(account)
+    return _hydrate_account(account, db)
 
 
 @router.put("/{account_id}/subscription", response_model=AccountSubscriptionRead)

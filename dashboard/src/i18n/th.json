@@ -4,13 +4,15 @@
     "studio": "AI Studio",
     "calendar": "Calendar",
     "posts": "Posts",
+    "reviewQueue": "Review Queue",
     "logs": "Logs",
+    "users": "Users",
     "settings": "Settings",
     "billing": "Billing"
   },
   "layout": {
     "brandSubtitle": "AI workspace สำหรับวางแผน สร้าง ตรวจทาน กำหนดเวลา และเผยแพร่คอนเทนต์โซเชียลในกระบวนการเดียว",
-    "activeAccount": "Active Account",
+    "activeAccount": "Platform View",
     "logout": "ออกจากระบบ",
     "defaultOperator": "AI Operator",
     "platform": "Platform"
@@ -143,7 +145,7 @@
     "ideaName": "ชื่อไอเดีย",
     "savingIdea": "กำลังบันทึก...",
     "saveToCalendar": "บันทึกเข้า Calendar",
-    "autoDiscover": "Auto-discover 5 ideas",
+    "autoDiscover": "Auto-discover ideas",
     "discoveringIdeas": "กำลังหาไอเดีย...",
     "latestIdeas": "Latest Ideas",
     "latestIdeasSubtitle": "รายการ idea ล่าสุดในปฏิทิน",

@@ -1,7 +1,8 @@
-from app.models.entities import AIRun, AuditLog, ContentCalendar, Page, Post, PostAsset, PublishLog, Reference, Setting, User
+from app.models.entities import AIRun, AuditLog, ContentCalendar, Page, Post, PostAsset, PublishLog, Reference, Setting, User, UserPageAssignment
 
 __all__ = [
     "User",
+    "UserPageAssignment",
     "Page",
     "ContentCalendar",
     "Post",

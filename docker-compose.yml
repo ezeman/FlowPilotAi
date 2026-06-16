@@ -63,6 +63,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - generated-media:/app/generated_assets
 
   scheduler:
     build:
@@ -77,6 +79,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - generated-media:/app/generated_assets
 
   dashboard:
     build:

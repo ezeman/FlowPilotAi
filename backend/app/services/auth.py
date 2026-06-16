@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.security import get_password_hash, verify_password
 from app.models.entities import Account, AccountSubscription, SubscriptionPlan, User
 from app.schemas.auth import BootstrapAdminRequest, RegisterRequest
+from app.services.account_scope import PLATFORM_OWNER, SUBSCRIBER_ADMIN
 
 
 class EmailNotVerifiedError(Exception):
@@ -33,7 +34,7 @@ def bootstrap_admin(db: Session, payload: BootstrapAdminRequest) -> User:
         email=payload.email.lower(),
         full_name=payload.full_name,
         hashed_password=get_password_hash(payload.password),
-        role="platform_admin",
+        role=PLATFORM_OWNER,
         is_active=True,
         is_email_verified=True,
     )
@@ -78,7 +79,7 @@ def register_new_account(db: Session, payload: RegisterRequest) -> User:
         email=payload.email.lower(),
         full_name=payload.full_name,
         hashed_password=get_password_hash(payload.password),
-        role="subscriber_admin",
+        role=SUBSCRIBER_ADMIN,
         is_active=True,
         is_email_verified=False,
         email_verification_token=verification_token,

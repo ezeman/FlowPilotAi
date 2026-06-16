@@ -9,6 +9,7 @@ import { useLang } from "../context/LangContext";
 import { apiRequest } from "../services/api";
 
 const defaultIdea = {
+  page_id: "",
   title: "",
   topic: "",
   content_pillar: "Indoor Air",
@@ -25,7 +26,8 @@ const initialBrief = {
   tone: "professional and friendly",
   post_length: "medium",
   reference_notes: "",
-  calendar_id: ""
+  calendar_id: "",
+  page_id: ""
 };
 
 function formatDate(iso) {
@@ -42,6 +44,7 @@ function formatDate(iso) {
 export default function StudioPage() {
   const { hasSubscription } = useAuth();
   const { t } = useLang();
+  const subscriptionMessage = "Your account does not have an active subscription. Please submit a payment request from Billing.";
   const [searchParams] = useSearchParams();
   const [activeAgent, setActiveAgent] = useState("strategist");
   const [ideaForm, setIdeaForm] = useState(defaultIdea);
@@ -81,6 +84,37 @@ export default function StudioPage() {
     { value: "long", label: t("common.long") }
   ];
 
+  function pagePreferences(pageId) {
+    const page = pages.find((item) => String(item.id) === String(pageId));
+    return {
+      tone: page?.default_tone || initialBrief.tone,
+      content_pillars: Array.isArray(page?.content_pillars) && page.content_pillars.length > 0
+        ? page.content_pillars
+        : [initialBrief.content_pillar],
+    };
+  }
+
+  function applyPagePreferencesToIdea(pageId) {
+    const preferences = pagePreferences(pageId);
+    setIdeaForm((current) => ({
+      ...current,
+      page_id: pageId,
+      tone: preferences.tone,
+      content_pillar: preferences.content_pillars[0] || current.content_pillar,
+    }));
+  }
+
+  function applyPagePreferencesToBrief(pageId) {
+    const preferences = pagePreferences(pageId);
+    setSelectedPageId(pageId);
+    setBriefForm((current) => ({
+      ...current,
+      page_id: pageId,
+      tone: preferences.tone,
+      content_pillar: preferences.content_pillars[0] || current.content_pillar,
+    }));
+  }
+
   function hydrateBrief(preselectedId, calendarData) {
     if (!preselectedId) return;
     const selected = calendarData.find((item) => String(item.id) === String(preselectedId));
@@ -92,8 +126,10 @@ export default function StudioPage() {
       tone: selected.tone || initialBrief.tone,
       post_length: selected.post_length || initialBrief.post_length,
       reference_notes: selected.notes || "",
-      calendar_id: String(selected.id)
+      calendar_id: String(selected.id),
+      page_id: selected.page_id ? String(selected.page_id) : ""
     });
+    if (selected.page_id) setSelectedPageId(String(selected.page_id));
   }
 
   async function loadData({ keepMessage = true } = {}) {
@@ -140,12 +176,19 @@ export default function StudioPage() {
 
   async function saveIdea(event) {
     event.preventDefault();
+    if (!hasSubscription) {
+      setError(subscriptionMessage);
+      return;
+    }
     setSavingIdea(true);
     setError("");
     try {
       const created = await apiRequest("/content-calendar", {
         method: "POST",
-        body: JSON.stringify(ideaForm)
+        body: JSON.stringify({
+          ...ideaForm,
+          page_id: ideaForm.page_id ? Number(ideaForm.page_id) : null
+        })
       });
       setIdeaForm(defaultIdea);
       setMessage(t("studio.savedIdea"));
@@ -160,6 +203,10 @@ export default function StudioPage() {
   }
 
   async function autoDiscoverIdeas() {
+    if (!hasSubscription) {
+      setError(subscriptionMessage);
+      return;
+    }
     setDiscoveringIdeas(true);
     setError("");
     try {
@@ -187,12 +234,18 @@ export default function StudioPage() {
       target_audience: selected?.target_audience || current.target_audience,
       tone: selected?.tone || current.tone,
       post_length: selected?.post_length || current.post_length,
-      reference_notes: selected?.notes || current.reference_notes
+      reference_notes: selected?.notes || current.reference_notes,
+      page_id: selected?.page_id ? String(selected.page_id) : current.page_id
     }));
+    if (selected?.page_id) setSelectedPageId(String(selected.page_id));
   }
 
   async function generateDraft(event) {
     event.preventDefault();
+    if (!hasSubscription) {
+      setError(subscriptionMessage);
+      return;
+    }
     setGenerating(true);
     setError("");
     setPreview(null);
@@ -206,6 +259,7 @@ export default function StudioPage() {
           tone: briefForm.tone,
           post_length: briefForm.post_length,
           reference_notes: briefForm.reference_notes,
+          page_id: selectedPageId || briefForm.page_id ? Number(selectedPageId || briefForm.page_id) : null,
           post_id: null
         })
       });
@@ -221,6 +275,10 @@ export default function StudioPage() {
 
   async function saveDraft() {
     if (!preview) return;
+    if (!hasSubscription) {
+      setError(subscriptionMessage);
+      return;
+    }
     setSavingDraft(true);
     setError("");
     try {
@@ -253,6 +311,10 @@ export default function StudioPage() {
   }
 
   async function createVisualBrief(postId) {
+    if (!hasSubscription) {
+      setError(subscriptionMessage);
+      return;
+    }
     setImageWorkingId(postId);
     setError("");
     try {
@@ -267,6 +329,10 @@ export default function StudioPage() {
   }
 
   async function generateImageAsset(postId) {
+    if (!hasSubscription) {
+      setError(subscriptionMessage);
+      return;
+    }
     setImageWorkingId(postId);
     setError("");
     try {
@@ -289,6 +355,10 @@ export default function StudioPage() {
   }
 
   async function decide(postId, approved) {
+    if (!hasSubscription) {
+      setError(subscriptionMessage);
+      return;
+    }
     setReviewingId(postId);
     setError("");
     try {
@@ -310,6 +380,10 @@ export default function StudioPage() {
   }
 
   async function publishNow(postId) {
+    if (!hasSubscription) {
+      setError(subscriptionMessage);
+      return;
+    }
     setPublishingId(postId);
     setError("");
     try {
@@ -376,6 +450,14 @@ export default function StudioPage() {
       </div>
 
       {error && <div className="inline-error">{error}</div>}
+      {!hasSubscription && (
+        <div className="subscription-warning">
+          <div>
+            <strong>{subscriptionMessage}</strong>
+          </div>
+          <Link className="primary-button" to="/billing">Billing</Link>
+        </div>
+      )}
       {message && <div className="inline-success">{message}</div>}
 
       {loading ? (
@@ -397,6 +479,17 @@ export default function StudioPage() {
               <div className="workspace-split">
                 <Card title={t("studio.newIdeaBriefTitle")} subtitle={t("studio.newIdeaBriefSubtitle")} variant="glass">
                   <form className="stack-form" onSubmit={saveIdea}>
+                    <label>
+                      Page
+                      <select value={ideaForm.page_id} onChange={(event) => applyPagePreferencesToIdea(event.target.value)} required={pages.length > 0}>
+                        <option value="">Select page</option>
+                        {pages.map((page) => (
+                          <option key={page.id} value={page.id}>
+                            {page.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <div className="form-grid">
                       <label>
                         {t("studio.ideaName")}
@@ -410,7 +503,15 @@ export default function StudioPage() {
                     <div className="form-grid">
                       <label>
                         Content Pillar
-                        <input value={ideaForm.content_pillar} onChange={(event) => setIdeaForm({ ...ideaForm, content_pillar: event.target.value })} />
+                        {pagePreferences(ideaForm.page_id).content_pillars.length > 1 ? (
+                          <select value={ideaForm.content_pillar} onChange={(event) => setIdeaForm({ ...ideaForm, content_pillar: event.target.value })}>
+                            {pagePreferences(ideaForm.page_id).content_pillars.map((pillar) => (
+                              <option key={pillar} value={pillar}>{pillar}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input value={ideaForm.content_pillar} onChange={(event) => setIdeaForm({ ...ideaForm, content_pillar: event.target.value })} />
+                        )}
                       </label>
                       <label>
                         Target Audience
@@ -437,13 +538,25 @@ export default function StudioPage() {
                       Notes
                       <textarea rows="5" value={ideaForm.notes} onChange={(event) => setIdeaForm({ ...ideaForm, notes: event.target.value })} />
                     </label>
-                    <div className="button-row">
-                      <button className="primary-button" type="submit" disabled={savingIdea || !hasSubscription}>
+                    <div className="button-row" style={{ alignItems: "center" }}>
+                      <button className="primary-button" type="submit" disabled={savingIdea || !hasSubscription} title={!hasSubscription ? subscriptionMessage : undefined}>
                         {savingIdea ? t("studio.savingIdea") : t("studio.saveToCalendar")}
                       </button>
-                      <button className="secondary-button" type="button" onClick={autoDiscoverIdeas} disabled={discoveringIdeas || !hasSubscription}>
-                        {discoveringIdeas ? t("studio.discoveringIdeas") : t("studio.autoDiscover")}
-                      </button>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        <select
+                          value={autoIdeaCount}
+                          onChange={(event) => setAutoIdeaCount(Number(event.target.value))}
+                          disabled={discoveringIdeas || !hasSubscription}
+                          style={{ width: "4.5rem" }}
+                        >
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <option key={n} value={n}>{n} idea{n > 1 ? "s" : ""}</option>
+                          ))}
+                        </select>
+                        <button className="secondary-button" type="button" onClick={autoDiscoverIdeas} disabled={discoveringIdeas || !hasSubscription} title={!hasSubscription ? subscriptionMessage : undefined}>
+                          {discoveringIdeas ? t("studio.discoveringIdeas") : `${t("studio.autoDiscover")} (${autoIdeaCount})`}
+                        </button>
+                      </div>
                     </div>
                   </form>
                 </Card>
@@ -508,13 +621,32 @@ export default function StudioPage() {
                       </select>
                     </label>
                     <label>
+                      Page
+                      <select value={selectedPageId || briefForm.page_id} onChange={(event) => applyPagePreferencesToBrief(event.target.value)}>
+                        <option value="">{t("studio.selectPageLater")}</option>
+                        {pages.map((page) => (
+                          <option key={page.id} value={page.id}>
+                            {page.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
                       Topic
                       <input value={briefForm.topic} onChange={(event) => setBriefForm({ ...briefForm, topic: event.target.value })} required />
                     </label>
                     <div className="form-grid">
                       <label>
                         Content Pillar
-                        <input value={briefForm.content_pillar} onChange={(event) => setBriefForm({ ...briefForm, content_pillar: event.target.value })} />
+                        {pagePreferences(selectedPageId || briefForm.page_id).content_pillars.length > 1 ? (
+                          <select value={briefForm.content_pillar} onChange={(event) => setBriefForm({ ...briefForm, content_pillar: event.target.value })}>
+                            {pagePreferences(selectedPageId || briefForm.page_id).content_pillars.map((pillar) => (
+                              <option key={pillar} value={pillar}>{pillar}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input value={briefForm.content_pillar} onChange={(event) => setBriefForm({ ...briefForm, content_pillar: event.target.value })} />
+                        )}
                       </label>
                       <label>
                         Target Audience
@@ -542,7 +674,7 @@ export default function StudioPage() {
                       <textarea rows="5" value={briefForm.reference_notes} onChange={(event) => setBriefForm({ ...briefForm, reference_notes: event.target.value })} />
                     </label>
                     <div className="button-row">
-                      <button className="primary-button" type="submit" disabled={generating || !hasSubscription}>
+                      <button className="primary-button" type="submit" disabled={generating || !hasSubscription} title={!hasSubscription ? subscriptionMessage : undefined}>
                         {generating ? t("studio.generating") : t("studio.sendToWriter")}
                       </button>
                     </div>
@@ -599,7 +731,7 @@ export default function StudioPage() {
                         </select>
                       </label>
                       <div className="button-row">
-                        <button className="primary-button" type="button" onClick={saveDraft} disabled={savingDraft || !hasSubscription}>
+                        <button className="primary-button" type="button" onClick={saveDraft} disabled={savingDraft || !hasSubscription} title={!hasSubscription ? subscriptionMessage : undefined}>
                           {savingDraft ? t("studio.savingDraft") : t("studio.saveAsDraft")}
                         </button>
                         <button className="ghost-button" type="button" onClick={() => setActiveAgent("researcher")}>
@@ -687,6 +819,7 @@ export default function StudioPage() {
                             type="button"
                             onClick={() => createVisualBrief(post.id)}
                             disabled={imageWorkingId === post.id || !hasSubscription}
+                            title={!hasSubscription ? subscriptionMessage : undefined}
                           >
                             {imageWorkingId === post.id ? <Spinner size="sm" /> : t("studio.createVisualBrief")}
                           </button>
@@ -695,6 +828,7 @@ export default function StudioPage() {
                             type="button"
                             onClick={() => generateImageAsset(post.id)}
                             disabled={imageWorkingId === post.id || !hasSubscription}
+                            title={!hasSubscription ? subscriptionMessage : undefined}
                           >
                             {imageWorkingId === post.id
                               ? <Spinner size="sm" />
@@ -741,6 +875,7 @@ export default function StudioPage() {
                               type="button"
                               onClick={() => decide(post.id, true)}
                               disabled={reviewingId === post.id || !hasSubscription}
+                              title={!hasSubscription ? subscriptionMessage : undefined}
                             >
                               {reviewingId === post.id ? <Spinner size="sm" /> : t("studio.postApproved")}
                             </button>
@@ -750,6 +885,7 @@ export default function StudioPage() {
                             type="button"
                             onClick={() => decide(post.id, false)}
                             disabled={reviewingId === post.id || !hasSubscription}
+                            title={!hasSubscription ? subscriptionMessage : undefined}
                           >
                             {t("studio.sendBackForEdit")}
                           </button>
@@ -790,6 +926,7 @@ export default function StudioPage() {
                             type="button"
                             onClick={() => publishNow(post.id)}
                             disabled={publishingId === post.id || !hasSubscription}
+                            title={!hasSubscription ? subscriptionMessage : undefined}
                           >
                             {publishingId === post.id ? <Spinner size="sm" /> : t("studio.publishNow")}
                           </button>

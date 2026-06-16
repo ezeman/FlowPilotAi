@@ -12,12 +12,14 @@ import PostsPage from "./pages/PostsPage";
 import ProfilePage from "./pages/ProfilePage";
 import PublishLogsPage from "./pages/PublishLogsPage";
 import RegisterPage from "./pages/RegisterPage";
+import ReviewQueuePage from "./pages/ReviewQueuePage";
 import SchedulePostPage from "./pages/SchedulePostPage";
 import SettingsPage from "./pages/SettingsPage";
 import StudioPage from "./pages/StudioPage";
+import UsersPage from "./pages/UsersPage";
 
 function ProtectedRoute({ children }) {
-  const { token, loading, activeAccountId } = useAuth();
+  const { token, loading } = useAuth();
 
   if (loading) {
     return (
@@ -31,7 +33,7 @@ function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />;
   }
 
-  return <Layout key={activeAccountId || "default-account"}>{children}</Layout>;
+  return <Layout>{children}</Layout>;
 }
 
 export default function App() {
@@ -88,6 +90,14 @@ export default function App() {
         }
       />
       <Route
+        path="/review-queue"
+        element={
+          <ProtectedRoute>
+            <ReviewQueuePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/publish-logs"
         element={
           <ProtectedRoute>
@@ -108,6 +118,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <BillingPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/users"
+        element={
+          <ProtectedRoute>
+            <UsersPage />
           </ProtectedRoute>
         }
       />

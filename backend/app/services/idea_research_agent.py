@@ -12,6 +12,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.celery_app import celery_app
 from app.models.entities import AIRun, Account, ContentCalendar, Page, Setting, User
 from app.schemas.content import (
     AutoIdeaDiscoveryItem,
@@ -24,20 +25,21 @@ from app.services.account_scope import enforce_auto_idea_limit, require_account
 
 
 IDEA_SYSTEM_PROMPT = """
-You are an editorial research agent for a Thai-language Facebook content team about clean air, indoor air quality, health, ventilation, mold, climate, and pollution.
-You will receive trusted source snippets from official organizations.
-Create practical, educational content ideas in Thai.
+You are an editorial research agent for a Thai-language Facebook content team.
+You will receive account page context and trusted source snippets.
+Create practical, educational content ideas in Thai that fit each Facebook page's theme, audience, and content pillars.
 
 Rules:
 - Thai language only for title, topic, target_audience, tone, notes
 - No sales copy
-- Stay close to the provided sources
-- Prefer timely, useful, public-health-oriented ideas
+- Prioritize page context first, then use trusted sources for support and references
+- Distribute ideas across available pages instead of concentrating in a single theme
 - Return strict JSON with key "items"
-- Each item must contain: title, topic, content_pillar, target_audience, tone, post_length, notes, source_name, source_url
-- content_pillar should be one of: Indoor Air, Outdoor Air, Health, CO2, VOC, Mold, Ventilation, Climate, Lifestyle
+- Each item must contain: title, topic, content_pillar, target_audience, tone, post_length, notes, source_name, source_url, page_id, viral_score
+- content_pillar must be relevant to the selected page and should prefer that page's configured content_pillars
 - post_length should be short, medium, or long
 - Include 1 source only per item
+- viral_score: integer 0-100 — honestly rate the idea's viral potential on Facebook (shareability, emotional hook, engagement likelihood)
 """.strip()
 
 
@@ -50,38 +52,7 @@ class TrustedSource:
     source_type: str = "official_web"
 
 
-TRUSTED_SOURCES: list[TrustedSource] = [
-    TrustedSource(
-        id="who-air-pollution",
-        name="WHO Air Pollution Newsroom",
-        url="https://www.who.int/news-room/air-pollution",
-        content_pillar="Health",
-    ),
-    TrustedSource(
-        id="epa-indoor-air-quality",
-        name="US EPA Indoor Air Quality",
-        url="https://www.epa.gov/indoor-air-quality-iaq",
-        content_pillar="Indoor Air",
-    ),
-    TrustedSource(
-        id="cdc-air-quality",
-        name="CDC Air Quality",
-        url="https://www.cdc.gov/air-quality/about/index.html",
-        content_pillar="Outdoor Air",
-    ),
-    TrustedSource(
-        id="nih-news-air-pollution",
-        name="NIH News in Health",
-        url="https://newsinhealth.nih.gov/2026/04/protect-against-air-pollution",
-        content_pillar="Health",
-    ),
-    TrustedSource(
-        id="niehs-air-pollution",
-        name="NIEHS Air Pollution and Your Health",
-        url="https://www.niehs.nih.gov/health/topics/agents/air-pollution",
-        content_pillar="Health",
-    ),
-]
+TRUSTED_SOURCES: list[TrustedSource] = []
 
 AUTO_IDEA_SCHEDULE_KEY = "auto_idea_generation_schedule"
 AUTO_IDEA_STATE_KEY = "auto_idea_generation_state"
@@ -108,7 +79,7 @@ def update_auto_idea_schedule(db: Session, actor: User, config: AutoIdeaSchedule
     account_id = require_account(actor)
     account = db.query(Account).filter(Account.id == account_id).first()
     if account:
-        enforce_auto_idea_limit(account, config.count)
+        enforce_auto_idea_limit(account, config.count, db)
 
     schedule_setting = db.query(Setting).filter(Setting.account_id == account_id, Setting.key == AUTO_IDEA_SCHEDULE_KEY).first()
     if not schedule_setting:
@@ -220,6 +191,26 @@ def _collect_source_summaries() -> list[dict]:
     return summaries
 
 
+def _page_context_summaries(pages: list[Page]) -> list[dict]:
+    page_summaries: list[dict] = []
+    for page in pages:
+        description = (page.description or "").strip()
+        category = (page.page_category or "General").strip()
+        pillars = page.content_pillars or ["General"]
+        primary_pillar = pillars[0]
+        page_summaries.append(
+            {
+                "id": f"page-{page.id}",
+                "name": f"Page Context: {page.name}",
+                "url": f"page://{page.id}",
+                "content_pillar": primary_pillar,
+                "title": f"{page.name} - {category}",
+                "summary": description or f"Audience and themes for {page.name} in category {category}",
+            }
+        )
+    return page_summaries
+
+
 def _mock_ideas(summaries: list[dict], count: int) -> list[dict]:
     items: list[dict] = []
     for source in summaries[:count]:
@@ -234,6 +225,7 @@ def _mock_ideas(summaries: list[dict], count: int) -> list[dict]:
                 "notes": f"สรุปจากแหล่งทางการ {source['name']}: {source['summary'][:220]}",
                 "source_name": source["name"],
                 "source_url": source["url"],
+                "viral_score": 78,
             }
         )
     return items
@@ -244,8 +236,13 @@ def _normalize_items(raw_items: list[dict], fallback_sources: dict[str, dict]) -
     for raw_item in raw_items:
         source_url = str(raw_item.get("source_url") or "").strip()
         fallback = fallback_sources.get(source_url) or next(iter(fallback_sources.values()))
+        try:
+            viral_score = max(0, min(100, int(raw_item.get("viral_score") or 75)))
+        except (TypeError, ValueError):
+            viral_score = 75
         normalized.append(
             AutoIdeaDiscoveryItem(
+                page_id=raw_item.get("page_id"),
                 title=str(raw_item.get("title") or fallback["title"] or fallback["name"]).strip(),
                 topic=str(raw_item.get("topic") or fallback["summary"] or fallback["title"] or fallback["name"]).strip(),
                 content_pillar=str(raw_item.get("content_pillar") or fallback["content_pillar"]).strip(),
@@ -255,18 +252,26 @@ def _normalize_items(raw_items: list[dict], fallback_sources: dict[str, dict]) -
                 notes=str(raw_item.get("notes") or f"อ้างอิงจาก {fallback['name']}").strip(),
                 source_name=str(raw_item.get("source_name") or fallback["name"]).strip(),
                 source_url=source_url or fallback["url"],
+                viral_score=viral_score,
             )
         )
     return normalized
 
 
 def _build_system_prompt(pages: list[Page]) -> str:
-    pages_with_desc = [p for p in pages if p.description]
-    if not pages_with_desc:
+    if not pages:
         return IDEA_SYSTEM_PROMPT
+
+    def _page_desc(page: Page) -> str:
+        return page.description or page.page_category or "General"
+
     page_context = "\n".join(
-        f'- {p.name} ({p.page_category or "General"}): {p.description}'
-        for p in pages_with_desc
+        (
+            f'- id={p.id} {p.name} ({p.page_category or "General"}): {_page_desc(p)}'
+            f' Tone: {p.default_tone or "account default"}.'
+            f' Content pillars: {", ".join(p.content_pillars or ["account default"])}.'
+        )
+        for p in pages
     )
     return (
         IDEA_SYSTEM_PROMPT
@@ -276,22 +281,28 @@ def _build_system_prompt(pages: list[Page]) -> str:
 
 
 def _mock_ideas_for_pages(summaries: list[dict], count: int, pages: list[Page]) -> list[dict]:
-    pages_with_desc = [p for p in pages if p.description]
+    if not pages:
+        return _mock_ideas(summaries, count)
+
     items: list[dict] = []
-    for i, source in enumerate(summaries[:count]):
-        page = pages_with_desc[i % len(pages_with_desc)] if pages_with_desc else None
+    for i in range(count):
+        source = summaries[i % len(summaries)]
+        page = pages[i % len(pages)]
+        selected_pillar = (page.content_pillars or [source["content_pillar"]])[0]
         page_hint = f" สำหรับเพจ {page.name}" if page else ""
         items.append(
             {
-                "title": f"ชวนคุยจาก {source['name']}: สิ่งที่ควรรู้เรื่อง{source['content_pillar'].lower()}{page_hint}",
-                "topic": source["title"] or source["summary"][:120] or source["name"],
-                "content_pillar": source["content_pillar"],
-                "target_audience": page.description[:120] if page and page.description else "คนเมือง เจ้าของบ้าน และคนทำงานในอาคาร",
-                "tone": "ให้ข้อมูลชัดเจน เชื่อถือได้ และนำไปใช้ได้จริง",
+                "page_id": page.id,
+                "title": f"ไอเดียคอนเทนต์ {selected_pillar}{page_hint}",
+                "topic": page.description or source["title"] or source["summary"][:120] or source["name"],
+                "content_pillar": selected_pillar,
+                "target_audience": (page.description or "กลุ่มผู้ติดตามของเพจนี้")[:120],
+                "tone": page.default_tone or "ให้ข้อมูลชัดเจน เชื่อถือได้ และนำไปใช้ได้จริง",
                 "post_length": "medium",
                 "notes": f"สรุปจากแหล่งทางการ {source['name']}: {source['summary'][:220]}",
                 "source_name": source["name"],
                 "source_url": source["url"],
+                "viral_score": 78,
             }
         )
     return items
@@ -323,7 +334,15 @@ def _generate_ideas_from_sources(summaries: list[dict], request: AutoIdeaDiscove
     items = payload.get("items", [])
     if not isinstance(items, list):
         items = []
-    return _normalize_items(items[: request.count], {item["url"]: item for item in summaries})
+    normalized = _normalize_items(items[: request.count], {item["url"]: item for item in summaries})
+
+    page_ids = {page.id for page in pages}
+    for index, item in enumerate(normalized):
+        if item.page_id in page_ids:
+            continue
+        item.page_id = pages[index % len(pages)].id if pages else None
+
+    return normalized
 
 
 def _dedupe_against_existing(db: Session, items: list[AutoIdeaDiscoveryItem]) -> list[AutoIdeaDiscoveryItem]:
@@ -360,7 +379,7 @@ def discover_and_optionally_save_ideas(
     account_id = require_account(user)
     account = db.query(Account).filter(Account.id == account_id).first()
     if account:
-        enforce_auto_idea_limit(account, request.count)
+        enforce_auto_idea_limit(account, request.count, db)
     settings = get_settings()
     ai_run = AIRun(
         account_id=account_id,
@@ -376,12 +395,48 @@ def discover_and_optionally_save_ideas(
 
     try:
         pages = db.query(Page).filter(Page.account_id == account_id, Page.is_active.is_(True)).all()
-        summaries = _collect_source_summaries()
+        summaries = _page_context_summaries(pages) + _collect_source_summaries()
+
+        # Fallback: if no pages and no trusted sources, use a generic context
+        # so idea generation can still proceed
         if not summaries:
-            raise RuntimeError("Could not fetch any trusted sources for idea discovery")
+            summaries = [
+                {
+                    "id": "generic-fallback",
+                    "name": "เนื้อหาทั่วไป",
+                    "url": "page://generic",
+                    "content_pillar": "ไลฟ์สไตล์",
+                    "title": "ไอเดียคอนเทนต์ Facebook",
+                    "summary": (
+                        "สร้างเนื้อหาที่น่าสนใจ มีคุณค่า และแชร์ได้สำหรับ Facebook "
+                        "โดยเน้นประโยชน์แก่ผู้อ่าน ข้อมูลที่เป็นประโยชน์ และเรื่องราวที่สร้างแรงบันดาลใจ"
+                    ),
+                }
+            ]
+
+        VIRAL_THRESHOLD = 70
+        MAX_RESEARCHER_RETRIES = 2
+
         items = _generate_ideas_from_sources(summaries, request, pages)
         items = _dedupe_against_existing(db, items)
-        items = items[: request.count]
+        viral_items = [it for it in items if (it.viral_score or 0) >= VIRAL_THRESHOLD]
+
+        # If no ideas pass viral threshold, retry with larger batches
+        retry = 0
+        while len(viral_items) < 1 and retry < MAX_RESEARCHER_RETRIES:
+            retry += 1
+            from app.schemas.content import AutoIdeaDiscoveryRequest as _Req
+            more_items = _generate_ideas_from_sources(
+                summaries, _Req(count=request.count * 2, save_to_calendar=False), pages
+            )
+            more_items = _dedupe_against_existing(db, more_items)
+            viral_items.extend(it for it in more_items if (it.viral_score or 0) >= VIRAL_THRESHOLD)
+
+        # If still none after retries, use best available sorted by viral_score
+        if not viral_items:
+            viral_items = sorted(items, key=lambda x: x.viral_score or 0, reverse=True)
+
+        items = viral_items[: request.count]
 
         if request.save_to_calendar:
             created_items: list[ContentCalendar] = []
@@ -393,6 +448,7 @@ def discover_and_optionally_save_ideas(
                 )
                 calendar_item = ContentCalendar(
                     account_id=account_id,
+                    page_id=item.page_id,
                     title=item.title,
                     topic=item.topic,
                     content_pillar=item.content_pillar,
@@ -411,6 +467,12 @@ def discover_and_optionally_save_ideas(
             ai_run.status = "completed"
             ai_run.output_payload = {"created_count": len(created_items), "sources_checked": summaries}
             db.commit()
+            # Trigger auto-pipeline for each saved idea
+            for created_item in created_items:
+                celery_app.send_task(
+                    "app.workers.tasks.auto_pipeline_for_idea_job",
+                    args=[created_item.id, account_id],
+                )
             return created_items, list_trusted_sources()
 
         ai_run.status = "completed"

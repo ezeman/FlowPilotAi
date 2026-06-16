@@ -4,13 +4,15 @@
     "studio": "AI Studio",
     "calendar": "Calendar",
     "posts": "Posts",
+    "reviewQueue": "Review Queue",
     "logs": "Logs",
+    "users": "Users",
     "settings": "Settings",
     "billing": "Billing"
   },
   "layout": {
     "brandSubtitle": "AI workspace for planning, creating, reviewing, scheduling, and publishing social content in one flow",
-    "activeAccount": "Active Account",
+    "activeAccount": "Platform View",
     "logout": "Logout",
     "defaultOperator": "AI Operator",
     "platform": "Platform"
@@ -143,7 +145,7 @@
     "ideaName": "Idea Name",
     "savingIdea": "Saving...",
     "saveToCalendar": "Save to Calendar",
-    "autoDiscover": "Auto-discover 5 ideas",
+    "autoDiscover": "Auto-discover ideas",
     "discoveringIdeas": "Discovering ideas...",
     "latestIdeas": "Latest Ideas",
     "latestIdeasSubtitle": "Latest ideas in the calendar",

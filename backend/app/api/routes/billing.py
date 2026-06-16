@@ -9,7 +9,7 @@ from app.api.deps import get_current_user, require_roles
 from app.db.session import get_db
 from app.models.entities import Account, AccountSubscription, PaymentRequest, SubscriptionPlan, User
 from app.schemas.billing import PaymentRequestCreate, PaymentRequestRead, RejectRequest
-from app.services.account_scope import is_platform_admin, require_account
+from app.services.account_scope import get_active_subscription, is_platform_admin, require_account
 
 router = APIRouter()
 
@@ -32,6 +32,16 @@ def create_payment_request(
     plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == payload.plan_code, SubscriptionPlan.is_active.is_(True)).first()
     if not plan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+    existing_pending = (
+        db.query(PaymentRequest)
+        .filter(PaymentRequest.account_id == account_id, PaymentRequest.status == "pending")
+        .first()
+    )
+    if existing_pending:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This account already has a pending payment request",
+        )
 
     req = PaymentRequest(
         account_id=account_id,
@@ -83,12 +93,20 @@ def approve_payment_request(
     if not plan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
 
+    existing_subscription = get_active_subscription(req.account)
     db.query(AccountSubscription).filter(
         AccountSubscription.account_id == req.account_id,
         AccountSubscription.status == "active",
+        AccountSubscription.id != (existing_subscription.id if existing_subscription else 0),
     ).update({"status": "canceled"})
 
-    db.add(AccountSubscription(account_id=req.account_id, plan_id=plan.id, status="active", auto_renew=False))
+    if existing_subscription:
+        existing_subscription.plan_id = plan.id
+        existing_subscription.status = "active"
+        existing_subscription.expires_at = None
+        existing_subscription.auto_renew = False
+    else:
+        db.add(AccountSubscription(account_id=req.account_id, plan_id=plan.id, status="active", auto_renew=False))
 
     req.status = "approved"
     req.reviewed_by_id = current_user.id
@@ -115,8 +133,12 @@ def reject_payment_request(
     if req.status != "pending":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Request is already {req.status}")
 
+    reason = payload.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rejection reason is required")
+
     req.status = "rejected"
-    req.reject_reason = payload.reason
+    req.reject_reason = reason
     req.reviewed_by_id = current_user.id
     req.reviewed_at = datetime.now(timezone.utc)
     db.commit()

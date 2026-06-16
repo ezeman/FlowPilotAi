@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import accounts, auth, billing, content_calendar, dashboard, pages, posts, publish_logs, settings, users
+from app.api.routes import accounts, auth, billing, content_calendar, dashboard, pages, posts, publish_logs, settings, subscription, users
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -13,3 +13,4 @@ api_router.include_router(settings.router, prefix="/settings", tags=["settings"]
 api_router.include_router(pages.router, prefix="/pages", tags=["pages"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
+api_router.include_router(subscription.router, prefix="/subscription", tags=["subscription"])

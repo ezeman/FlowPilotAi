@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import Card from "../components/Card";
 import Spinner from "../components/Spinner";
 import StatusPill from "../components/StatusPill";
+import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LangContext";
 import { apiRequest } from "../services/api";
 
@@ -46,7 +47,9 @@ function formatScheduledDate(value) {
 }
 
 export default function ContentCalendarPage() {
+  const { hasSubscription } = useAuth();
   const { t } = useLang();
+  const subscriptionMessage = "Your account does not have an active subscription. Please submit a payment request from Billing.";
   const [calendarItems, setCalendarItems] = useState([]);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -77,7 +80,7 @@ export default function ContentCalendarPage() {
     );
 
     return calendarItems.filter(
-      (item) => item.scheduled_date && !linkedCalendarIds.has(item.id)
+      (item) => (item.scheduled_for || item.scheduled_date) && !linkedCalendarIds.has(item.id)
     );
   }, [calendarItems, scheduledPosts]);
 
@@ -98,7 +101,7 @@ export default function ContentCalendarPage() {
       title: item.title,
       topic: item.topic,
       status: item.status,
-      dateValue: item.scheduled_date,
+      dateValue: item.scheduled_for || item.scheduled_date,
       link: `/studio?calendar_id=${item.id}`,
       linkLabel: t("calendar.openInStudio"),
       source: "calendar"
@@ -108,7 +111,7 @@ export default function ContentCalendarPage() {
   }, [scheduledPosts, scheduledCalendarOnly]);
 
   const unscheduledItems = useMemo(
-    () => calendarItems.filter((item) => !item.scheduled_date),
+    () => calendarItems.filter((item) => !item.scheduled_for && !item.scheduled_date),
     [calendarItems]
   );
 
@@ -141,13 +144,27 @@ export default function ContentCalendarPage() {
           <p>{t("calendar.subtitle")}</p>
         </div>
         <div className="hero-actions">
-          <Link className="primary-button" to="/studio">
-            {t("calendar.addBrief")}
-          </Link>
+          {hasSubscription ? (
+            <Link className="primary-button" to="/studio">
+              {t("calendar.addBrief")}
+            </Link>
+          ) : (
+            <button className="primary-button" type="button" disabled title={subscriptionMessage}>
+              {t("calendar.addBrief")}
+            </button>
+          )}
         </div>
       </section>
 
       {error && <div className="inline-error">{error}</div>}
+      {!hasSubscription && (
+        <div className="subscription-warning">
+          <div>
+            <strong>{subscriptionMessage}</strong>
+          </div>
+          <Link className="primary-button" to="/billing">Billing</Link>
+        </div>
+      )}
 
       {loading ? (
         <div className="loading-center">
@@ -157,9 +174,15 @@ export default function ContentCalendarPage() {
         <Card variant="glass">
           <div className="empty-state centered">
             <p>{t("calendar.noData")}</p>
-            <Link className="primary-button" to="/studio">
-              {t("calendar.createFirstIdea")}
-            </Link>
+            {hasSubscription ? (
+              <Link className="primary-button" to="/studio">
+                {t("calendar.createFirstIdea")}
+              </Link>
+            ) : (
+              <button className="primary-button" type="button" disabled title={subscriptionMessage}>
+                {t("calendar.createFirstIdea")}
+              </button>
+            )}
           </div>
         </Card>
       ) : (
@@ -253,9 +276,15 @@ export default function ContentCalendarPage() {
                       </div>
                       <p>{entry.topic || t("calendar.noTopicExtra")}</p>
                       <div className="button-row" style={{ marginTop: "0.75rem" }}>
-                        <Link className="ghost-button" to={entry.link}>
-                          {entry.linkLabel}
-                        </Link>
+                        {hasSubscription ? (
+                          <Link className="ghost-button" to={entry.link}>
+                            {entry.linkLabel}
+                          </Link>
+                        ) : (
+                          <button className="ghost-button" type="button" disabled title={subscriptionMessage}>
+                            {entry.linkLabel}
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))
@@ -278,9 +307,15 @@ export default function ContentCalendarPage() {
                       </div>
                       <p>{item.topic || t("calendar.noTopicMore")}</p>
                       <div className="button-row" style={{ marginTop: "0.75rem" }}>
-                        <Link className="ghost-button" to={`/studio?calendar_id=${item.id}`}>
-                          {t("calendar.openInStudio")}
-                        </Link>
+                        {hasSubscription ? (
+                          <Link className="ghost-button" to={`/studio?calendar_id=${item.id}`}>
+                            {t("calendar.openInStudio")}
+                          </Link>
+                        ) : (
+                          <button className="ghost-button" type="button" disabled title={subscriptionMessage}>
+                            {t("calendar.openInStudio")}
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))

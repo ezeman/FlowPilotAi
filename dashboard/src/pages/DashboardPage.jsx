@@ -4,8 +4,10 @@ import { Link } from "react-router-dom";
 import Card from "../components/Card";
 import Spinner from "../components/Spinner";
 import StatusPill from "../components/StatusPill";
+import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LangContext";
 import { apiRequest } from "../services/api";
+import { isPlatformOwner } from "../utils/roles";
 
 const PIPELINE_STEPS = ["idea", "draft", "ready_for_review", "approved", "scheduled", "posted"];
 
@@ -29,7 +31,9 @@ function formatDate(iso) {
 }
 
 export default function DashboardPage() {
+  const { user } = useAuth();
   const { t } = useLang();
+  const platformOwner = isPlatformOwner(user);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -60,12 +64,21 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="hero-actions">
-          <Link className="primary-button" to="/studio">
-            {t("dashboard.openStudio")}
-          </Link>
-          <Link className="secondary-button" to="/posts">
-            {t("dashboard.viewAllPosts")}
-          </Link>
+          {platformOwner ? (
+            <>
+              <Link className="primary-button" to="/settings">Manage Accounts</Link>
+              <Link className="secondary-button" to="/billing">Review Payments</Link>
+            </>
+          ) : (
+            <>
+              <Link className="primary-button" to="/studio">
+                {t("dashboard.openStudio")}
+              </Link>
+              <Link className="secondary-button" to="/posts">
+                {t("dashboard.viewAllPosts")}
+              </Link>
+            </>
+          )}
         </div>
       </section>
 
@@ -77,12 +90,12 @@ export default function DashboardPage() {
         </div>
       ) : (
         <>
-          {(pendingReview > 0 || failedCount > 0) && (
+          {!platformOwner && (pendingReview > 0 || failedCount > 0) && (
             <div className="alerts-stack">
               {pendingReview > 0 && (
                 <div className="alert-box alert-info">
                   <span>{t("dashboard.alertPendingReview").replace("{count}", pendingReview)}</span>
-                  <Link className="primary-button" to="/studio">
+                  <Link className="primary-button" to="/review-queue">
                     {t("dashboard.alertGoReviewer")}
                   </Link>
                 </div>
@@ -125,7 +138,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="two-column-layout">
+          {!platformOwner && <div className="two-column-layout">
             <Card
               title={t("dashboard.quickActions")}
               subtitle={t("dashboard.quickActionsSubtitle")}
@@ -163,7 +176,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             </Card>
-          </div>
+          </div>}
 
           <Card title={t("dashboard.recentLogs")} subtitle={t("dashboard.recentLogsSubtitle")}>
             {(summary?.latest_publish_logs || []).length === 0 ? (
@@ -186,9 +199,13 @@ export default function DashboardPage() {
                     {summary.latest_publish_logs.map((log) => (
                       <tr key={log.id}>
                         <td>
-                          <Link to={`/posts/${log.post_id}/edit`} style={{ color: "var(--primary)", fontWeight: 700 }}>
-                            #{log.post_id}
-                          </Link>
+                          {platformOwner ? (
+                            <strong>#{log.post_id}</strong>
+                          ) : (
+                            <Link to={`/posts/${log.post_id}/edit`} style={{ color: "var(--primary)", fontWeight: 700 }}>
+                              #{log.post_id}
+                            </Link>
+                          )}
                         </td>
                         <td>
                           <StatusPill status={log.status} />
